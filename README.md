@@ -5,14 +5,19 @@ websites once, press one button, and it creates one window per website, moves
 every matching open tab, and routes future tabs there automatically. It requires
 Chrome 111 or later.
 
-## Install
+## Install from GitHub
 
-1. Extract the downloaded folder if you received it as a ZIP file.
-2. Open `chrome://extensions` in Chrome.
-3. Enable **Developer mode** in the top-right corner.
-4. Select **Load unpacked**.
-5. Select the `chrome-window-router` folder that contains `manifest.json`.
-6. Pin **Window Router** from Chrome's extension menu.
+1. Select **Code** on this GitHub page, then select **Download ZIP**.
+2. Extract the downloaded ZIP file.
+3. Open `chrome://extensions` in Chrome.
+4. Enable **Developer mode** in the top-right corner.
+5. Select **Load unpacked**.
+6. Select the extracted folder that contains `manifest.json`.
+7. Pin **Window Router** from Chrome's extension menu.
+
+Chrome does not automatically update extensions installed this way. Download a
+new release, replace the local files, and select **Reload** on
+`chrome://extensions` when you want to update it.
 
 ## Organize your tabs
 
