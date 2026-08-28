@@ -19,6 +19,14 @@ Chrome does not automatically update extensions installed this way. Download a
 new release, replace the local files, and select **Reload** on
 `chrome://extensions` when you want to update it.
 
+## Build it yourself with an AI coding agent
+
+Want to recreate or customize the extension yourself? Copy the complete
+[Window Router build prompt](BUILD_PROMPT.md) into Codex, Claude Code, or
+another coding agent. It contains the product behavior, architecture, privacy
+constraints, tests, and delivery checklist needed to build the extension from
+an empty folder.
+
 ## Organize your tabs
 
 1. Select the Window Router toolbar icon from any Chrome window.
