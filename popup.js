@@ -1,15 +1,13 @@
-const rulesContainer = document.querySelector("#rules");
-const template = document.querySelector("#rule-template");
+const domainInput = document.querySelector("#domains");
+const organizeButton = document.querySelector("#organize");
 const notice = document.querySelector("#notice");
-let currentWindow;
+const resultsSection = document.querySelector("#results");
+const resultList = document.querySelector("#result-list");
 
 function showNotice(message, isError = false) {
   notice.textContent = message;
   notice.classList.toggle("error", isError);
-  notice.style.display = "block";
-  window.setTimeout(() => {
-    notice.style.display = "none";
-  }, 2800);
+  notice.hidden = false;
 }
 
 async function send(message) {
@@ -18,103 +16,58 @@ async function send(message) {
   return response;
 }
 
-async function render() {
-  currentWindow = await chrome.windows.getCurrent();
-  const { rules, bindings, intents } = await send({ type: "GET_STATE" });
-  rulesContainer.replaceChildren();
-
-  for (const rule of rules) {
-    const card = template.content.firstElementChild.cloneNode(true);
-    const key = `${rule.id}:${currentWindow.incognito ? "incognito" : "regular"}`;
-    const binding = bindings[key];
-    const assignedWindowId = bindingWindowId(binding);
-    const isHere = assignedWindowId === currentWindow.id;
-    const hasAssignment = Boolean(intents[key]);
-
-    card.querySelector(".rule-name").textContent = rule.name;
-    card.querySelector(".rule-domains").textContent = rule.domains.join(" · ");
-
-    const status = card.querySelector(".rule-status");
-    status.textContent = isHere
-      ? "Assigned to this window"
-      : assignedWindowId
-        ? "Assigned to another window"
-        : hasAssignment
-          ? "Assigned; waiting to recover its window"
-          : "No window assigned yet";
-    status.classList.toggle("here", isHere);
-
-    const toggle = card.querySelector(".rule-toggle");
-    toggle.checked = rule.enabled;
-    toggle.addEventListener("change", async () => {
-      try {
-        await send({ type: "SET_RULE_ENABLED", ruleId: rule.id, enabled: toggle.checked });
-        showNotice(`${rule.name} routing ${toggle.checked ? "enabled" : "disabled"}.`);
-      } catch (error) {
-        toggle.checked = !toggle.checked;
-        showNotice(error.message, true);
-      }
-    });
-
-    card.querySelector(".assign").addEventListener("click", async () => {
-      try {
-        await send({
-          type: "ASSIGN_WINDOW",
-          ruleId: rule.id,
-          windowId: currentWindow.id,
-          incognito: currentWindow.incognito,
-        });
-        showNotice(`${rule.name} now routes to this window.`);
-        await render();
-      } catch (error) {
-        showNotice(error.message, true);
-      }
-    });
-
-    card.querySelector(".collect").addEventListener("click", async (event) => {
-      const button = event.currentTarget;
-      button.disabled = true;
-      button.textContent = "Collecting…";
-      try {
-        const response = await send({
-          type: "COLLECT_TABS",
-          ruleId: rule.id,
-          windowId: currentWindow.id,
-          incognito: currentWindow.incognito,
-        });
-        showNotice(`Moved ${response.count} ${rule.name} tab${response.count === 1 ? "" : "s"}.`);
-        await render();
-      } catch (error) {
-        showNotice(error.message, true);
-      } finally {
-        button.disabled = false;
-        button.textContent = "Collect tabs here";
-      }
-    });
-
-    const clearButton = card.querySelector(".clear");
-    clearButton.disabled = !hasAssignment;
-    clearButton.addEventListener("click", async () => {
-      try {
-        await send({
-          type: "CLEAR_ASSIGNMENT",
-          ruleId: rule.id,
-          incognito: currentWindow.incognito,
-        });
-        showNotice(`${rule.name} assignment cleared.`);
-        await render();
-      } catch (error) {
-        showNotice(error.message, true);
-      }
-    });
-
-    rulesContainer.append(card);
-  }
+async function loadDomains() {
+  const { rules } = await send({ type: "GET_STATE" });
+  domainInput.value = rules.map((rule) => rule.domains[0]).join("\n");
 }
+
+function renderResults(response) {
+  resultList.replaceChildren();
+  for (const result of response.results) {
+    const item = document.createElement("li");
+    const name = document.createElement("strong");
+    const detail = document.createElement("span");
+    name.textContent = result.name;
+    detail.textContent = result.created
+      ? `New window · ${result.moved} moved${result.failed ? ` · ${result.failed} failed` : ""}`
+      : `Existing window · ${result.moved} moved${result.failed ? ` · ${result.failed} failed` : ""}`;
+    item.append(name, detail);
+    resultList.append(item);
+  }
+  resultsSection.hidden = false;
+}
+
+organizeButton.addEventListener("click", async () => {
+  organizeButton.disabled = true;
+  organizeButton.textContent = "Organizing your tabs…";
+  notice.hidden = true;
+  resultsSection.hidden = true;
+
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+    const response = await send({
+      type: "ORGANIZE_DOMAINS",
+      input: domainInput.value,
+      incognito: currentWindow.incognito,
+    });
+    renderResults(response);
+    const summary = `Done. ${response.created} window${response.created === 1 ? "" : "s"} created and ${response.moved} tab${response.moved === 1 ? "" : "s"} moved.`;
+    showNotice(
+      response.failed
+        ? `${summary} ${response.failed} tab${response.failed === 1 ? "" : "s"} could not be moved; press the button again to retry.`
+        : summary,
+      response.failed > 0,
+    );
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    organizeButton.disabled = false;
+    organizeButton.textContent = "Organize all open tabs";
+  }
+});
 
 document.querySelector("#open-options").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
 
-render().catch((error) => showNotice(error.message, true));
-import { bindingWindowId } from "./src/router-core.js";
+loadDomains().catch((error) => showNotice(error.message, true));

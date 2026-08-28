@@ -17,6 +17,8 @@ const localData = {};
 const sessionData = {};
 const tabs = [];
 const moves = [];
+const createdWindows = [];
+let nextWindowId = 100;
 
 function storageArea(data) {
   return {
@@ -82,6 +84,26 @@ globalThis.chrome = {
   },
   windows: {
     onRemoved: events.removed,
+    async create(properties) {
+      const windowId = nextWindowId;
+      nextWindowId += 1;
+      createdWindows.push({ windowId, ...properties });
+      if (properties.tabId) {
+        const tab = tabs.find((candidate) => candidate.id === properties.tabId);
+        if (!tab) throw new Error("Tab not found");
+        tab.windowId = windowId;
+      } else if (properties.url) {
+        tabs.push({
+          id: Math.max(0, ...tabs.map((tab) => tab.id)) + 1,
+          windowId,
+          incognito: Boolean(properties.incognito),
+          url: properties.url,
+          active: true,
+          pinned: false,
+        });
+      }
+      return { id: windowId, type: "normal", incognito: Boolean(properties.incognito) };
+    },
     async get(windowId) {
       return { id: windowId, type: "normal", incognito: false };
     },
@@ -110,6 +132,8 @@ beforeEach(() => {
   for (const key of Object.keys(sessionData)) delete sessionData[key];
   tabs.length = 0;
   moves.length = 0;
+  createdWindows.length = 0;
+  nextWindowId = 100;
 });
 
 describe("background routing", () => {
@@ -187,6 +211,85 @@ describe("background routing", () => {
 
     expect(response).toEqual({ ok: true, count: 1 });
     expect(moves).toEqual([{ tabId: 1, windowId: 20, index: -1 }]);
+  });
+
+  test("creates dedicated windows in one action and routes future tabs", async () => {
+    tabs.push(
+      {
+        id: 1,
+        windowId: 10,
+        incognito: false,
+        url: "https://youtube.com/watch?v=one",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 20,
+        incognito: false,
+        url: "https://youtu.be/two",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 3,
+        windowId: 30,
+        incognito: false,
+        url: "https://x.com/openai",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 4,
+        windowId: 40,
+        incognito: false,
+        url: "https://example.org",
+        active: false,
+        pinned: false,
+      },
+    );
+
+    const response = await sendMessage({
+      type: "ORGANIZE_DOMAINS",
+      input: "youtube.com, x.com, linkedin",
+      incognito: false,
+    });
+
+    expect(response.ok).toBe(true);
+    expect(response.created).toBe(3);
+    expect(response.moved).toBe(3);
+    expect(createdWindows).toHaveLength(3);
+    expect(tabs.find((tab) => tab.id === 1).windowId).toBe(100);
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(100);
+    expect(tabs.find((tab) => tab.id === 3).windowId).toBe(101);
+    expect(tabs.find((tab) => tab.id === 4).windowId).toBe(40);
+    expect(tabs.some((tab) => tab.windowId === 102 && tab.url === "https://linkedin.com")).toBe(true);
+
+    const futureTab = {
+      id: 20,
+      windowId: 50,
+      incognito: false,
+      url: "https://youtube.com/watch?v=future",
+      active: false,
+      pinned: false,
+    };
+    tabs.push(futureTab);
+    events.updated.emit(
+      futureTab.id,
+      { url: futureTab.url },
+      structuredClone(futureTab),
+    );
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 20).windowId).toBe(100);
+
+    const secondResponse = await sendMessage({
+      type: "ORGANIZE_DOMAINS",
+      input: "youtube.com, x.com, linkedin",
+      incognito: false,
+    });
+    expect(secondResponse.created).toBe(0);
+    expect(createdWindows).toHaveLength(3);
   });
 
   test("waits for restored tabs to settle before recovering a window", async () => {

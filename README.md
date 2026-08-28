@@ -1,8 +1,9 @@
 # Window Router
 
-Window Router sends matching tabs to a Chrome window that you choose. It ships
-with rules for YouTube, X/Twitter, LinkedIn, and GitHub, and supports custom
-domain groups. It requires Chrome 111 or later.
+Window Router organizes matching tabs into dedicated Chrome windows. Enter your
+websites once, press one button, and it creates one window per website, moves
+every matching open tab, and routes future tabs there automatically. It requires
+Chrome 111 or later.
 
 ## Install
 
@@ -13,20 +14,31 @@ domain groups. It requires Chrome 111 or later.
 5. Select the `chrome-window-router` folder that contains `manifest.json`.
 6. Pin **Window Router** from Chrome's extension menu.
 
-## Set up a destination window
+## Organize your tabs
 
-1. Go to the Chrome window that should hold a site's tabs.
-2. Select the Window Router toolbar icon.
-3. Find the website and select **Use this window**.
-4. Repeat in the destination window for each website group.
+1. Select the Window Router toolbar icon from any Chrome window.
+2. Enter one website per line. Commas, spaces, and semicolons also work.
+3. Select **Organize all open tabs**.
 
-Use **Collect tabs here** when you also want to move all currently open tabs for
-that website into the current window. Collection only runs after an explicit
-click.
+Example:
 
-Once assigned, newly opened tabs and tabs that navigate to a matching domain
-move automatically. If the moved tab was active, Chrome brings its destination
-window to the front.
+```text
+youtube.com
+x.com
+linkedin
+github.com
+```
+
+The extension creates or reuses four dedicated windows and moves the matching
+tabs from all your existing Chrome windows. Unrelated tabs stay where they are.
+Running the organizer again reuses the same dedicated windows.
+
+After organization, newly opened tabs and tabs that navigate to a matching
+domain move automatically. If the moved tab was active, Chrome brings its
+destination window to the front.
+
+Single words receive `.com`, so `linkedin` becomes `linkedin.com`. YouTube links
+from `youtu.be` share the YouTube window. `twitter.com` shares the X window.
 
 ## Custom rules
 

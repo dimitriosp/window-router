@@ -25,6 +25,13 @@ export const DEFAULT_RULES = Object.freeze([
   },
 ]);
 
+const KNOWN_DOMAIN_GROUPS = Object.freeze([
+  DEFAULT_RULES[0],
+  DEFAULT_RULES[1],
+  DEFAULT_RULES[2],
+  DEFAULT_RULES[3],
+]);
+
 export function normalizeDomain(input) {
   const value = String(input ?? "").trim().toLowerCase();
   if (!value) return null;
@@ -81,6 +88,40 @@ export function normalizeRuleId(value, fallback) {
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "") || fallback
   );
+}
+
+export function parseDomainRules(input) {
+  const rules = [];
+  const usedRuleIds = new Set();
+  const tokens = String(input ?? "")
+    .split(/[\s,;]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  for (const token of tokens) {
+    if (token.includes("/") && !token.includes("://")) continue;
+    const domain = normalizeDomain(
+      /^[a-z0-9-]+$/i.test(token) ? `${token}.com` : token,
+    );
+    if (!domain) continue;
+
+    const knownGroup = KNOWN_DOMAIN_GROUPS.find((group) =>
+      group.domains.includes(domain),
+    );
+    const rule = knownGroup
+      ? { ...knownGroup, domains: [...knownGroup.domains] }
+      : {
+          id: `domain-${normalizeRuleId(domain, "site")}`,
+          name: domain,
+          domains: [domain],
+          enabled: true,
+        };
+    if (usedRuleIds.has(rule.id)) continue;
+    usedRuleIds.add(rule.id);
+    rules.push(rule);
+  }
+
+  return rules;
 }
 
 export function selectDestinationWindow(tabs, rule, sourceWindowId, incognito) {

@@ -3,6 +3,7 @@ import {
   bindingWindowId,
   normalizeDomain,
   normalizeRuleId,
+  parseDomainRules,
   sanitizeRules,
   selectDestinationWindow,
   urlMatchesDomains,
@@ -76,6 +77,46 @@ describe("destination recovery", () => {
 });
 
 describe("rule sanitation", () => {
+  test("turns a simple domain list into one rule per dedicated window", () => {
+    expect(parseDomainRules("youtube.com, x.com\nlinkedin github.com")).toEqual([
+      {
+        id: "youtube",
+        name: "YouTube",
+        domains: ["youtube.com", "youtu.be"],
+        enabled: true,
+      },
+      {
+        id: "x-twitter",
+        name: "X / Twitter",
+        domains: ["x.com", "twitter.com"],
+        enabled: true,
+      },
+      {
+        id: "linkedin",
+        name: "LinkedIn",
+        domains: ["linkedin.com"],
+        enabled: true,
+      },
+      {
+        id: "github",
+        name: "GitHub",
+        domains: ["github.com"],
+        enabled: true,
+      },
+    ]);
+  });
+
+  test("deduplicates aliases and rejects invalid input", () => {
+    expect(parseDomainRules("youtube.com youtu.be not/a/domain")).toEqual([
+      {
+        id: "youtube",
+        name: "YouTube",
+        domains: ["youtube.com", "youtu.be"],
+        enabled: true,
+      },
+    ]);
+  });
+
   test("reads current and legacy binding records", () => {
     expect(bindingWindowId({ windowId: 42, source: "manual" })).toBe(42);
     expect(bindingWindowId(17)).toBe(17);

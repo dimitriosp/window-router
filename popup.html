@@ -10,37 +10,32 @@
     <main>
       <header>
         <div>
-          <p class="eyebrow">Chrome extension</p>
+          <p class="eyebrow">Tab organizer</p>
           <h1>Window Router</h1>
         </div>
-        <button id="open-options" class="icon-button" title="Manage rules" aria-label="Manage rules">⚙</button>
+        <button id="open-options" class="icon-button" title="Advanced rules" aria-label="Advanced rules">⚙</button>
       </header>
 
-      <p class="intro">Choose which sites belong in this window.</p>
-      <div id="notice" role="status" aria-live="polite"></div>
-      <section id="rules" aria-label="Routing rules"></section>
-    </main>
+      <p class="intro">
+        Enter your websites. One click creates one dedicated window for each and
+        moves every matching open tab.
+      </p>
 
-    <template id="rule-template">
-      <article class="rule-card">
-        <div class="rule-heading">
-          <div>
-            <h2 class="rule-name"></h2>
-            <p class="rule-domains"></p>
-          </div>
-          <label class="switch" title="Enable automatic routing">
-            <input class="rule-toggle" type="checkbox" />
-            <span></span>
-          </label>
-        </div>
-        <p class="rule-status"></p>
-        <div class="actions">
-          <button class="assign primary">Use this window</button>
-          <button class="collect">Collect tabs here</button>
-          <button class="clear text-button">Clear</button>
-        </div>
-      </article>
-    </template>
+      <label for="domains">Websites</label>
+      <textarea id="domains" rows="6" spellcheck="false" placeholder="youtube.com&#10;x.com&#10;linkedin&#10;github.com"></textarea>
+      <p class="hint">One per line, or separate them with commas or spaces.</p>
+
+      <button id="organize" class="primary" type="button">
+        Organize all open tabs
+      </button>
+
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <section id="results" hidden>
+        <h2>Dedicated windows</h2>
+        <ul id="result-list"></ul>
+        <p class="future-note">Future matching tabs will jump to these windows automatically.</p>
+      </section>
+    </main>
 
     <script type="module" src="popup.js"></script>
   </body>

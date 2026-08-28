@@ -2,6 +2,7 @@ import {
   DEFAULT_RULES,
   bindingKey,
   bindingWindowId,
+  parseDomainRules,
   sanitizeRules,
   selectDestinationWindow,
   urlMatchesDomains,
@@ -13,10 +14,12 @@ const BINDINGS_KEY = "windowBindings";
 const ASSIGNMENT_INTENTS_KEY = "assignmentIntents";
 const STARTUP_RECOVERY_KEY = "startupRecoveryPending";
 const DEFERRED_TABS_KEY = "startupDeferredTabIds";
+const ORGANIZED_RULES_KEY = "organizedRuleWindows";
 const STARTUP_RECOVERY_ALARM = "finish-startup-recovery";
 const movingTabs = new Set();
 let routingQueue = Promise.resolve();
 let startupRecoveryPending = false;
+let bulkOrganizationActive = false;
 
 async function getRules() {
   const stored = await chrome.storage.local.get(RULES_KEY);
@@ -44,6 +47,11 @@ async function getAssignmentIntents() {
 
 async function saveAssignmentIntents(intents) {
   await chrome.storage.local.set({ [ASSIGNMENT_INTENTS_KEY]: intents });
+}
+
+async function getOrganizedRules() {
+  const stored = await chrome.storage.local.get(ORGANIZED_RULES_KEY);
+  return stored[ORGANIZED_RULES_KEY] ?? {};
 }
 
 async function isUsableWindow(windowId, incognito) {
@@ -138,6 +146,7 @@ async function moveTabToWindow(tab, targetWindowId) {
 
 async function routeTab(tab) {
   if (!tab?.id || !tab.url || movingTabs.has(tab.id)) return;
+  if (bulkOrganizationActive) return;
   if (await deferForStartupRecovery(tab.id)) return;
 
   const rules = await getRules();
@@ -187,6 +196,156 @@ async function collectTabs(rule, targetWindowId, incognito) {
   }
 
   return matchingTabs.length;
+}
+
+async function moveMatchingTabs(tabs, targetWindowId) {
+  let moved = 0;
+  let failed = 0;
+  for (const tab of tabs) {
+    if (tab.windowId === targetWindowId) continue;
+    movingTabs.add(tab.id);
+    try {
+      await moveTabToWindow(tab, targetWindowId);
+      moved += 1;
+    } catch (error) {
+      failed += 1;
+      console.warn("Window Router could not organize a tab.", error);
+    } finally {
+      movingTabs.delete(tab.id);
+    }
+  }
+  return { moved, failed };
+}
+
+async function saveRuleSet(updatedRules) {
+  await chrome.storage.local.set({ [RULES_KEY]: updatedRules });
+
+  const allowedRuleIds = new Set(updatedRules.map((candidate) => candidate.id));
+  const [bindings, intents, organizedRules] = await Promise.all([
+    getBindings(),
+    getAssignmentIntents(),
+    getOrganizedRules(),
+  ]);
+  for (const collection of [bindings, intents, organizedRules]) {
+    for (const key of Object.keys(collection)) {
+      const ruleId = key.replace(/:(regular|incognito)$/, "");
+      if (!allowedRuleIds.has(ruleId)) delete collection[key];
+    }
+  }
+
+  await Promise.all([
+    saveBindings(bindings),
+    saveAssignmentIntents(intents),
+    chrome.storage.local.set({ [ORGANIZED_RULES_KEY]: organizedRules }),
+  ]);
+}
+
+async function organizeDomains(input, incognito) {
+  if (bulkOrganizationActive) {
+    throw new Error("Window organization is already running.");
+  }
+
+  const rules = parseDomainRules(input);
+  if (rules.length === 0) {
+    throw new Error("Enter at least one valid website, such as youtube.com.");
+  }
+
+  bulkOrganizationActive = true;
+  try {
+    await saveRuleSet(rules);
+    const [tabs, bindings, intents, organizedRules] = await Promise.all([
+      chrome.tabs.query({}),
+      getBindings(),
+      getAssignmentIntents(),
+      getOrganizedRules(),
+    ]);
+    const claimedTabIds = new Set();
+    const results = [];
+
+    for (const rule of rules) {
+      const key = bindingKey(rule.id, incognito);
+      const matchingTabs = tabs.filter(
+        (tab) =>
+          tab.incognito === Boolean(incognito) &&
+          !claimedTabIds.has(tab.id) &&
+          urlMatchesDomains(tab.url, rule.domains),
+      );
+      matchingTabs.forEach((tab) => claimedTabIds.add(tab.id));
+
+      const savedWindowId = organizedRules[key]
+        ? bindingWindowId(bindings[key])
+        : null;
+      const canReuseWindow = await isUsableWindow(savedWindowId, incognito);
+      let targetWindowId = savedWindowId;
+      let created = false;
+      let moved = 0;
+      let failed = 0;
+
+      if (!canReuseWindow) {
+        created = true;
+        if (matchingTabs.length > 0) {
+          const firstTab = matchingTabs.shift();
+          const sourceWindowId = firstTab.windowId;
+          movingTabs.add(firstTab.id);
+          try {
+            const createdWindow = await chrome.windows.create({
+              tabId: firstTab.id,
+              focused: false,
+            });
+            targetWindowId = createdWindow.id;
+            if (sourceWindowId !== targetWindowId) moved += 1;
+          } finally {
+            movingTabs.delete(firstTab.id);
+          }
+        } else {
+          const createdWindow = await chrome.windows.create({
+            url: `https://${rule.domains[0]}`,
+            incognito: Boolean(incognito),
+            focused: false,
+          });
+          targetWindowId = createdWindow.id;
+        }
+      }
+
+      bindings[key] = { windowId: targetWindowId, source: "manual" };
+      intents[key] = true;
+      organizedRules[key] = true;
+      await Promise.all([
+        saveBindings(bindings),
+        saveAssignmentIntents(intents),
+        chrome.storage.local.set({ [ORGANIZED_RULES_KEY]: organizedRules }),
+      ]);
+
+      const moveResult = await moveMatchingTabs(matchingTabs, targetWindowId);
+      moved += moveResult.moved;
+      failed += moveResult.failed;
+      results.push({
+        ruleId: rule.id,
+        name: rule.name,
+        domain: rule.domains[0],
+        windowId: targetWindowId,
+        created,
+        moved,
+        failed,
+      });
+    }
+
+    await Promise.all([
+      saveBindings(bindings),
+      saveAssignmentIntents(intents),
+      chrome.storage.local.set({ [ORGANIZED_RULES_KEY]: organizedRules }),
+    ]);
+
+    return {
+      rules,
+      results,
+      moved: results.reduce((total, result) => total + result.moved, 0),
+      failed: results.reduce((total, result) => total + result.failed, 0),
+      created: results.filter((result) => result.created).length,
+    };
+  } finally {
+    bulkOrganizationActive = false;
+  }
 }
 
 async function finishStartupRecovery() {
@@ -292,6 +451,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return;
     }
 
+    if (message.type === "ORGANIZE_DOMAINS") {
+      const result = await organizeDomains(message.input, message.incognito);
+      sendResponse({ ok: true, ...result });
+      return;
+    }
+
     const rule = rules.find((candidate) => candidate.id === message.ruleId);
     if (!rule && message.type !== "SAVE_RULES") {
       throw new Error("Routing rule not found.");
@@ -333,23 +498,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "SAVE_RULES") {
       const updatedRules = sanitizeRules(message.rules);
       if (updatedRules.length === 0) throw new Error("Add at least one valid rule.");
-      await chrome.storage.local.set({ [RULES_KEY]: updatedRules });
-
-      const allowedRuleIds = new Set(updatedRules.map((candidate) => candidate.id));
-      const [bindings, intents] = await Promise.all([
-        getBindings(),
-        getAssignmentIntents(),
-      ]);
-      for (const key of Object.keys(bindings)) {
-        const ruleId = key.replace(/:(regular|incognito)$/, "");
-        if (!allowedRuleIds.has(ruleId)) delete bindings[key];
-      }
-      for (const key of Object.keys(intents)) {
-        const ruleId = key.replace(/:(regular|incognito)$/, "");
-        if (!allowedRuleIds.has(ruleId)) delete intents[key];
-      }
-      await saveBindings(bindings);
-      await saveAssignmentIntents(intents);
+      await saveRuleSet(updatedRules);
       sendResponse({ ok: true, rules: updatedRules });
       return;
     }
