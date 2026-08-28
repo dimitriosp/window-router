@@ -19,6 +19,7 @@ const tabs = [];
 const moves = [];
 const createdWindows = [];
 const createdMenuItems = [];
+const windowMetadata = new Map();
 let nextWindowId = 100;
 let windowCreateHook = null;
 
@@ -119,7 +120,13 @@ globalThis.chrome = {
       return { id: windowId, type: "normal", incognito: Boolean(properties.incognito) };
     },
     async get(windowId) {
-      return { id: windowId, type: "normal", incognito: false };
+      return (
+        windowMetadata.get(windowId) ?? {
+          id: windowId,
+          type: "normal",
+          incognito: false,
+        }
+      );
     },
     async update(windowId) {
       return { id: windowId, type: "normal", incognito: false };
@@ -148,6 +155,7 @@ beforeEach(() => {
   moves.length = 0;
   createdWindows.length = 0;
   createdMenuItems.length = 0;
+  windowMetadata.clear();
   nextWindowId = 100;
   windowCreateHook = null;
 });
@@ -485,6 +493,51 @@ describe("background routing", () => {
     expect(tabs.find((tab) => tab.id === 4).windowId).toBe(10);
     expect(sessionData.windowBindings?.["x-twitter:regular"]).toBeUndefined();
     expect(createdWindows).toEqual([]);
+  });
+
+  test("ignores non-normal windows when selecting an auto-merge destination", async () => {
+    localData.routingRules = [
+      {
+        id: "x-twitter",
+        name: "X / Twitter",
+        domains: ["x.com", "twitter.com"],
+        enabled: true,
+      },
+    ];
+    await sendMessage({ type: "SET_AUTO_MERGE_THRESHOLD", threshold: 2 });
+    windowMetadata.set(20, { id: 20, type: "popup", incognito: false });
+    tabs.push(
+      ...[1, 2, 3].map((id) => ({
+        id,
+        windowId: 20,
+        incognito: false,
+        url: `https://x.com/popup-${id}`,
+        active: false,
+        pinned: false,
+      })),
+      ...[4, 5].map((id) => ({
+        id,
+        windowId: 30,
+        incognito: false,
+        url: `https://x.com/normal-${id}`,
+        active: false,
+        pinned: false,
+      })),
+      {
+        id: 6,
+        windowId: 10,
+        incognito: false,
+        url: "https://x.com/explore",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    events.updated.emit(6, { url: tabs[5].url }, structuredClone(tabs[5]));
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 6).windowId).toBe(30);
+    expect(sessionData.windowBindings["x-twitter:regular"].windowId).toBe(30);
   });
 
   test("creates dedicated windows in one action and routes future tabs", async () => {

@@ -176,17 +176,37 @@ async function adoptThresholdDestination(rule, tab, threshold) {
   if (threshold === 0) return null;
 
   const tabs = await chrome.tabs.query({});
+  const matchingTabs = tabs.filter(
+    (candidate) =>
+      candidate.incognito === Boolean(tab.incognito) &&
+      urlMatchesRule(candidate.url, rule),
+  );
+  const candidateWindowIds = [
+    ...new Set(matchingTabs.map((candidate) => candidate.windowId)),
+  ];
+  const usableWindowIds = new Set(
+    (
+      await Promise.all(
+        candidateWindowIds.map(async (windowId) => ({
+          windowId,
+          usable: await isUsableWindow(windowId, tab.incognito),
+        })),
+      )
+    )
+      .filter((candidate) => candidate.usable)
+      .map((candidate) => candidate.windowId),
+  );
+  const usableTabs = matchingTabs.filter((candidate) =>
+    usableWindowIds.has(candidate.windowId),
+  );
   const destinationWindowId = selectDestinationWindow(
-    tabs,
+    usableTabs,
     rule,
     null,
     tab.incognito,
   );
-  const matchingTabCount = tabs.filter(
-    (candidate) =>
-      candidate.windowId === destinationWindowId &&
-      candidate.incognito === Boolean(tab.incognito) &&
-      urlMatchesRule(candidate.url, rule),
+  const matchingTabCount = usableTabs.filter(
+    (candidate) => candidate.windowId === destinationWindowId,
   ).length;
   if (destinationWindowId === null || matchingTabCount < threshold) return null;
 
