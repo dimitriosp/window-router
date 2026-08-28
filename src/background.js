@@ -15,6 +15,7 @@ const ASSIGNMENT_INTENTS_KEY = "assignmentIntents";
 const STARTUP_RECOVERY_KEY = "startupRecoveryPending";
 const DEFERRED_TABS_KEY = "startupDeferredTabIds";
 const ORGANIZED_RULES_KEY = "organizedRuleWindows";
+const AUTO_CREATE_WINDOWS_KEY = "autoCreateWindows";
 const STARTUP_RECOVERY_ALARM = "finish-startup-recovery";
 const ADD_SITE_MENU_ID = "add-site-to-window-router";
 const movingTabs = new Set();
@@ -52,6 +53,11 @@ async function saveAssignmentIntents(intents) {
 async function getOrganizedRules() {
   const stored = await chrome.storage.local.get(ORGANIZED_RULES_KEY);
   return stored[ORGANIZED_RULES_KEY] ?? {};
+}
+
+async function getAutoCreateWindows() {
+  const stored = await chrome.storage.local.get(AUTO_CREATE_WINDOWS_KEY);
+  return Boolean(stored[AUTO_CREATE_WINDOWS_KEY]);
 }
 
 async function isUsableWindow(windowId, incognito) {
@@ -106,17 +112,17 @@ async function clearBinding(ruleId, incognito) {
   await saveBindings(bindings);
 }
 
-async function findDestination(rule, sourceTab) {
+async function findDestination(rule, sourceTab, allowUnassigned = false) {
   const key = bindingKey(rule.id, sourceTab.incognito);
   const [bindings, intents] = await Promise.all([getBindings(), getAssignmentIntents()]);
-  if (!intents[key]) return null;
+  if (!intents[key] && !allowUnassigned) return null;
 
   const binding = bindings[key];
   const assignedWindowId = bindingWindowId(binding);
   const bindingSource = typeof binding === "number" ? "manual" : binding?.source;
 
   if (
-    bindingSource === "manual" &&
+    (bindingSource === "manual" || bindingSource === "automatic") &&
     (await isUsableWindow(assignedWindowId, sourceTab.incognito))
   ) {
     return assignedWindowId;
@@ -129,11 +135,39 @@ async function findDestination(rule, sourceTab) {
     sourceTab.windowId,
     sourceTab.incognito,
   );
+  if (recoveredWindowId === sourceTab.windowId) {
+    if (binding) {
+      delete bindings[key];
+      await saveBindings(bindings);
+    }
+    return null;
+  }
   if (recoveredWindowId !== null) {
     bindings[key] = { windowId: recoveredWindowId, source: "recovered" };
     await saveBindings(bindings);
   }
   return recoveredWindowId;
+}
+
+async function createAutomaticDestination(rule, tab) {
+  const key = bindingKey(rule.id, tab.incognito);
+  movingTabs.add(tab.id);
+  try {
+    const createdWindow = await chrome.windows.create({
+      tabId: tab.id,
+      focused: Boolean(tab.active),
+    });
+    const assignmentState = await loadAssignmentState();
+    assignmentState.bindings[key] = {
+      windowId: createdWindow.id,
+      source: "automatic",
+    };
+    assignmentState.intents[key] = true;
+    assignmentState.organizedRules[key] = true;
+    await saveAssignmentState(assignmentState);
+  } finally {
+    movingTabs.delete(tab.id);
+  }
 }
 
 async function moveTabToWindow(tab, targetWindowId) {
@@ -150,12 +184,19 @@ async function routeTab(tab) {
   if (!tab?.id || !tab.url || movingTabs.has(tab.id)) return;
   if (await deferForStartupRecovery(tab.id)) return;
 
-  const rules = await getRules();
+  const [rules, autoCreateWindows] = await Promise.all([
+    getRules(),
+    getAutoCreateWindows(),
+  ]);
   const rule = rules.find((candidate) => urlMatchesRule(tab.url, candidate));
   if (!rule) return;
 
-  const targetWindowId = await findDestination(rule, tab);
-  if (targetWindowId === null || targetWindowId === tab.windowId) return;
+  const targetWindowId = await findDestination(rule, tab, autoCreateWindows);
+  if (targetWindowId === null) {
+    if (autoCreateWindows) await createAutomaticDestination(rule, tab);
+    return;
+  }
+  if (targetWindowId === tab.windowId) return;
 
   movingTabs.add(tab.id);
   try {
@@ -529,11 +570,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const rules = await getRules();
 
     if (message.type === "GET_STATE") {
-      const [bindings, intents] = await Promise.all([
+      const [bindings, intents, autoCreateWindows] = await Promise.all([
         getBindings(),
         getAssignmentIntents(),
+        getAutoCreateWindows(),
       ]);
-      sendResponse({ ok: true, rules, bindings, intents });
+      sendResponse({ ok: true, rules, bindings, intents, autoCreateWindows });
+      return;
+    }
+
+    if (message.type === "SET_AUTO_CREATE_WINDOWS") {
+      const autoCreateWindows = Boolean(message.enabled);
+      await chrome.storage.local.set({ [AUTO_CREATE_WINDOWS_KEY]: autoCreateWindows });
+      sendResponse({ ok: true, autoCreateWindows });
       return;
     }
 

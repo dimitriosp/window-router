@@ -24,6 +24,10 @@ future matching tabs to those windows.
 - Preserve multi-domain groups created in the advanced rules page when their
   domain remains in the simple organizer field.
 - Move a matching tab after its URL becomes available or changes.
+- Offer an off-by-default setting that automatically creates a replacement
+  dedicated window when a listed site opens and no destination exists.
+- When automatic creation is off, leave a newly opened matching tab in place if
+  its previous destination window was closed.
 - Do not move a tab that is already in the assigned window.
 - Keep normal and incognito window assignments separate.
 - Recover a useful destination after Chrome restarts by selecting the window that

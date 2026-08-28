@@ -42,6 +42,17 @@ After organization, newly opened tabs and tabs that navigate to a matching
 domain move automatically. If the moved tab was active, Chrome brings its
 destination window to the front.
 
+### Automatically replace closed destination windows
+
+Enable **Always create a dedicated window** in the popup if you want Window
+Router to create a replacement automatically. When Chrome opens a listed site
+and no destination window remains, that tab becomes the new dedicated window.
+Later matching tabs route there. Turn the setting off to require the organizer
+or right-click action to create replacement windows.
+
+The setting reacts to website URLs. Typing `linkedin.com` works after Chrome
+loads LinkedIn; searching Google for the word `LinkedIn` remains a Google tab.
+
 ## Add a website from its tab
 
 Right-click a website tab and select **Add this site to Window Router**. The

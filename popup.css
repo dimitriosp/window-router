@@ -74,6 +74,29 @@ textarea:focus {
   font-size: 11px;
 }
 
+.auto-create-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 11px 12px;
+  border: 1px solid #dfe3ee;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+}
+
+.auto-create-setting input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: #675cff;
+}
+
+.auto-create-setting span { display: grid; gap: 3px; }
+.auto-create-setting strong { color: #364057; font-size: 12px; }
+.auto-create-setting small { color: #7b8599; font-size: 10px; font-weight: 500; line-height: 1.35; }
+
 button {
   border: 1px solid #d9deea;
   border-radius: 10px;

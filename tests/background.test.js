@@ -191,6 +191,108 @@ describe("background routing", () => {
     expect(moves).toEqual([]);
   });
 
+  test("organizes one matching tab after its old dedicated window was closed", async () => {
+    localData.routingRules = [
+      {
+        id: "linkedin",
+        name: "LinkedIn",
+        domains: ["linkedin.com"],
+        enabled: true,
+      },
+    ];
+    localData.assignmentIntents = { "linkedin:regular": true };
+    localData.organizedRuleWindows = { "linkedin:regular": true };
+    const linkedinTab = {
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "https://linkedin.com/feed",
+      active: true,
+      pinned: false,
+    };
+    tabs.push(linkedinTab);
+
+    events.updated.emit(
+      linkedinTab.id,
+      { url: linkedinTab.url },
+      structuredClone(linkedinTab),
+    );
+    await finishQueuedRouting();
+
+    expect(sessionData.windowBindings?.["linkedin:regular"]).toBeUndefined();
+
+    const response = await sendMessage({
+      type: "ORGANIZE_DOMAINS",
+      input: "linkedin.com",
+      incognito: false,
+    });
+
+    expect(response.created).toBe(1);
+    expect(tabs[0].windowId).toBe(100);
+  });
+
+  test("can automatically create a dedicated window for a listed site", async () => {
+    localData.routingRules = [
+      {
+        id: "linkedin",
+        name: "LinkedIn",
+        domains: ["linkedin.com"],
+        enabled: true,
+      },
+    ];
+
+    const settingResponse = await sendMessage({
+      type: "SET_AUTO_CREATE_WINDOWS",
+      enabled: true,
+    });
+    expect(settingResponse).toEqual({ ok: true, autoCreateWindows: true });
+    expect((await sendMessage({ type: "GET_STATE" })).autoCreateWindows).toBe(true);
+
+    const linkedinTab = {
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "https://linkedin.com/feed",
+      active: true,
+      pinned: false,
+    };
+    tabs.push(linkedinTab);
+    events.updated.emit(
+      linkedinTab.id,
+      { url: linkedinTab.url },
+      structuredClone(linkedinTab),
+    );
+    await finishQueuedRouting();
+
+    expect(createdWindows).toEqual([
+      { windowId: 100, tabId: 1, focused: true },
+    ]);
+    expect(tabs[0].windowId).toBe(100);
+    expect(sessionData.windowBindings["linkedin:regular"]).toEqual({
+      windowId: 100,
+      source: "automatic",
+    });
+
+    const futureTab = {
+      id: 2,
+      windowId: 20,
+      incognito: false,
+      url: "https://linkedin.com/in/example",
+      active: false,
+      pinned: false,
+    };
+    tabs.push(futureTab);
+    events.updated.emit(
+      futureTab.id,
+      { url: futureTab.url },
+      structuredClone(futureTab),
+    );
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(100);
+    expect(createdWindows).toHaveLength(1);
+  });
+
   test("creates dedicated windows in one action and routes future tabs", async () => {
     tabs.push(
       {

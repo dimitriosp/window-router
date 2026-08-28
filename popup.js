@@ -1,5 +1,6 @@
 const domainInput = document.querySelector("#domains");
 const organizeButton = document.querySelector("#organize");
+const autoCreateToggle = document.querySelector("#auto-create-windows");
 const notice = document.querySelector("#notice");
 const resultsSection = document.querySelector("#results");
 const resultList = document.querySelector("#result-list");
@@ -16,9 +17,10 @@ async function send(message) {
   return response;
 }
 
-async function loadDomains() {
-  const { rules } = await send({ type: "GET_STATE" });
+async function loadState() {
+  const { rules, autoCreateWindows } = await send({ type: "GET_STATE" });
   domainInput.value = rules.map((rule) => rule.domains[0]).join("\n");
+  autoCreateToggle.checked = autoCreateWindows;
 }
 
 function renderResults(response) {
@@ -66,8 +68,26 @@ organizeButton.addEventListener("click", async () => {
   }
 });
 
+autoCreateToggle.addEventListener("change", async () => {
+  const enabled = autoCreateToggle.checked;
+  autoCreateToggle.disabled = true;
+  try {
+    await send({ type: "SET_AUTO_CREATE_WINDOWS", enabled });
+    showNotice(
+      enabled
+        ? "Automatic window creation is on for listed sites."
+        : "Automatic window creation is off.",
+    );
+  } catch (error) {
+    autoCreateToggle.checked = !enabled;
+    showNotice(error.message, true);
+  } finally {
+    autoCreateToggle.disabled = false;
+  }
+});
+
 document.querySelector("#open-options").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
 
-loadDomains().catch((error) => showNotice(error.message, true));
+loadState().catch((error) => showNotice(error.message, true));
