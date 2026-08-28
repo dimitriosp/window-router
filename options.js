@@ -26,7 +26,7 @@ async function loadRules() {
   response.rules.forEach(addRuleRow);
 }
 
-async function saveRules() {
+function readRules() {
   const rows = [...rulesContainer.querySelectorAll(".rule-row")];
   const rules = rows.map((row, index) => {
     const name = row.querySelector(".name").value.trim();
@@ -49,15 +49,33 @@ async function saveRules() {
     throw new Error("Every rule needs a name and at least one valid domain.");
   }
 
-  const response = await chrome.runtime.sendMessage({ type: "SAVE_RULES", rules });
+  return rules;
+}
+
+async function saveRules(organize = false) {
+  const rules = readRules();
+  const currentWindow = organize ? await chrome.windows.getCurrent() : null;
+
+  const response = await chrome.runtime.sendMessage({
+    type: organize ? "SAVE_AND_ORGANIZE_RULES" : "SAVE_RULES",
+    rules,
+    incognito: Boolean(currentWindow?.incognito),
+  });
   if (!response?.ok) throw new Error(response?.error ?? "Could not save rules.");
-  showNotice("Rules saved. Open the extension popup and run Organize all open tabs.");
+  showNotice(
+    organize
+      ? `Rules saved. Organized ${response.moved} tabs into ${response.results.length} dedicated windows.`
+      : "Rules saved.",
+  );
   await loadRules();
 }
 
 document.querySelector("#add-rule").addEventListener("click", () => addRuleRow());
 document.querySelector("#save").addEventListener("click", () => {
   saveRules().catch((error) => showNotice(error.message, true));
+});
+document.querySelector("#save-and-organize").addEventListener("click", () => {
+  saveRules(true).catch((error) => showNotice(error.message, true));
 });
 
 loadRules().catch((error) => showNotice(error.message, true));

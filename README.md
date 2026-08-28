@@ -37,6 +37,16 @@ After organization, newly opened tabs and tabs that navigate to a matching
 domain move automatically. If the moved tab was active, Chrome brings its
 destination window to the front.
 
+## Add a website from its tab
+
+Right-click a website tab and select **Add this site to Window Router**. The
+extension adds that website to your rules, creates or reuses its dedicated
+window, and moves every open tab from the same domain into it. Future tabs from
+that domain route to the same window automatically.
+
+This action works on normal `http://` and `https://` website tabs. Chrome pages,
+such as `chrome://extensions`, are not added.
+
 Single words receive `.com`, so `linkedin` becomes `linkedin.com`. YouTube links
 from `youtu.be` share the YouTube window. `twitter.com` shares the X window.
 
@@ -44,7 +54,8 @@ from `youtu.be` share the YouTube window. `twitter.com` shares the X window.
 
 Select the gear icon in the popup. You can add a name and comma-separated
 domains, such as `notion.so, notion.site`. A domain automatically includes its
-subdomains.
+subdomains. Select **Save rules** to save only, or **Save and organize all tabs**
+to save and immediately organize every enabled website group.
 
 ## Restart behavior
 

@@ -106,6 +106,13 @@ button:disabled { cursor: wait; opacity: 0.65; }
 
 .primary:hover { background: #564be8; }
 
+.context-hint {
+  margin: 11px 4px 0;
+  color: #657087;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 #notice {
   margin-top: 14px;
   padding: 10px 12px;

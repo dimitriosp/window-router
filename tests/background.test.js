@@ -18,6 +18,7 @@ const sessionData = {};
 const tabs = [];
 const moves = [];
 const createdWindows = [];
+const createdMenuItems = [];
 let nextWindowId = 100;
 let windowCreateHook = null;
 
@@ -43,6 +44,7 @@ const events = {
   updated: createEvent(),
   removed: createEvent(),
   alarm: createEvent(),
+  contextClicked: createEvent(),
 };
 
 globalThis.chrome = {
@@ -58,6 +60,16 @@ globalThis.chrome = {
   alarms: {
     onAlarm: events.alarm,
     async create() {},
+  },
+  contextMenus: {
+    onClicked: events.contextClicked,
+    removeAll(callback) {
+      createdMenuItems.length = 0;
+      callback?.();
+    },
+    create(properties) {
+      createdMenuItems.push(structuredClone(properties));
+    },
   },
   tabs: {
     onCreated: events.created,
@@ -135,11 +147,26 @@ beforeEach(() => {
   tabs.length = 0;
   moves.length = 0;
   createdWindows.length = 0;
+  createdMenuItems.length = 0;
   nextWindowId = 100;
   windowCreateHook = null;
 });
 
 describe("background routing", () => {
+  test("registers the tab context-menu action when installed", async () => {
+    events.installed.emit();
+    await Bun.sleep(1);
+
+    expect(createdMenuItems).toEqual([
+      {
+        id: "add-site-to-window-router",
+        title: "Add this site to Window Router",
+        contexts: ["tab"],
+        documentUrlPatterns: ["http://*/*", "https://*/*"],
+      },
+    ]);
+  });
+
   test("does not route before the user assigns a destination", async () => {
     const source = {
       id: 1,
@@ -309,6 +336,133 @@ describe("background routing", () => {
       },
     ]);
     expect(tabs[0].windowId).toBe(100);
+  });
+
+  test("saves advanced rules and organizes all enabled rules in one action", async () => {
+    tabs.push(
+      {
+        id: 1,
+        windowId: 10,
+        incognito: false,
+        url: "https://vercel.com/dashboard",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 20,
+        incognito: false,
+        url: "https://example.com/private",
+        active: false,
+        pinned: false,
+      },
+    );
+
+    const response = await sendMessage({
+      type: "SAVE_AND_ORGANIZE_RULES",
+      incognito: false,
+      rules: [
+        {
+          id: "vercel",
+          name: "Vercel",
+          domains: ["vercel.com"],
+          enabled: true,
+        },
+        {
+          id: "example",
+          name: "Example",
+          domains: ["example.com"],
+          enabled: false,
+        },
+      ],
+    });
+
+    expect(response.ok).toBe(true);
+    expect(response.created).toBe(1);
+    expect(localData.routingRules).toEqual(response.rules);
+    expect(tabs.find((tab) => tab.id === 1).windowId).toBe(100);
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(20);
+  });
+
+  test("adds the clicked tab domain and organizes matching tabs", async () => {
+    const clickedTab = {
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "https://www.facebook.com/groups/example",
+      active: true,
+      pinned: false,
+    };
+    tabs.push(
+      clickedTab,
+      {
+        id: 2,
+        windowId: 20,
+        incognito: false,
+        url: "https://m.facebook.com/messages",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 3,
+        windowId: 30,
+        incognito: false,
+        url: "https://example.org",
+        active: false,
+        pinned: false,
+      },
+    );
+
+    events.contextClicked.emit(
+      { menuItemId: "add-site-to-window-router" },
+      structuredClone(clickedTab),
+    );
+    await Bun.sleep(20);
+
+    expect(localData.routingRules.some((rule) => rule.domains.includes("facebook.com"))).toBe(true);
+    expect(createdWindows).toHaveLength(1);
+    expect(tabs.find((tab) => tab.id === 1).windowId).toBe(100);
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(100);
+    expect(tabs.find((tab) => tab.id === 3).windowId).toBe(30);
+
+    const futureTab = {
+      id: 4,
+      windowId: 40,
+      incognito: false,
+      url: "https://facebook.com/events/future",
+      active: false,
+      pinned: false,
+    };
+    tabs.push(futureTab);
+    events.updated.emit(
+      futureTab.id,
+      { url: futureTab.url },
+      structuredClone(futureTab),
+    );
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 4).windowId).toBe(100);
+  });
+
+  test("does not add an internal Chrome tab from the context menu", async () => {
+    const clickedTab = {
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "chrome://extensions",
+      active: true,
+      pinned: false,
+    };
+    tabs.push(clickedTab);
+
+    events.contextClicked.emit(
+      { menuItemId: "add-site-to-window-router" },
+      structuredClone(clickedTab),
+    );
+    await Bun.sleep(10);
+
+    expect(localData.routingRules).toBeUndefined();
+    expect(createdWindows).toEqual([]);
   });
 
   test("waits for restored tabs to settle before recovering a window", async () => {

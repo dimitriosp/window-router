@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Window Router",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "minimum_chrome_version": "111",
   "description": "Automatically route websites such as YouTube, X, LinkedIn, and GitHub to their assigned Chrome windows.",
-  "permissions": ["alarms", "storage", "tabs"],
+  "permissions": ["alarms", "contextMenus", "storage", "tabs"],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
