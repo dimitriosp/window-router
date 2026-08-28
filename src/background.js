@@ -18,10 +18,8 @@ const ORGANIZED_RULES_KEY = "organizedRuleWindows";
 const STARTUP_RECOVERY_ALARM = "finish-startup-recovery";
 const ADD_SITE_MENU_ID = "add-site-to-window-router";
 const movingTabs = new Set();
-const bulkDeferredTabIds = new Set();
 let workQueue = Promise.resolve();
 let startupRecoveryPending = false;
-let bulkOrganizationActive = false;
 
 async function getRules() {
   const stored = await chrome.storage.local.get(RULES_KEY);
@@ -150,10 +148,6 @@ async function moveTabToWindow(tab, targetWindowId) {
 
 async function routeTab(tab) {
   if (!tab?.id || !tab.url || movingTabs.has(tab.id)) return;
-  if (bulkOrganizationActive) {
-    bulkDeferredTabIds.add(tab.id);
-    return;
-  }
   if (await deferForStartupRecovery(tab.id)) return;
 
   const rules = await getRules();
@@ -238,32 +232,6 @@ function preserveExistingDomainGroups(parsedRules, existingRules) {
     usedRuleIds.add(rule.id);
     return [rule];
   });
-}
-
-async function replayBulkDeferredTabs() {
-  const tabIds = [...bulkDeferredTabIds];
-  bulkDeferredTabIds.clear();
-  for (const tabId of tabIds) {
-    try {
-      await routeTab(await chrome.tabs.get(tabId));
-    } catch {
-      // A tab can close while a large organization run is in progress.
-    }
-  }
-}
-
-async function runBulkOrganization(task) {
-  if (bulkOrganizationActive) {
-    throw new Error("Window organization is already running.");
-  }
-
-  bulkOrganizationActive = true;
-  try {
-    return await task();
-  } finally {
-    bulkOrganizationActive = false;
-    await replayBulkDeferredTabs();
-  }
 }
 
 async function organizeRule(
@@ -351,10 +319,8 @@ async function organizeDomains(input, incognito) {
     throw new Error("Enter at least one valid website, such as youtube.com.");
   }
 
-  return runBulkOrganization(async () => {
-    const rules = preserveExistingDomainGroups(parsedRules, await getRules());
-    return organizeRuleSet(rules, incognito);
-  });
+  const rules = preserveExistingDomainGroups(parsedRules, await getRules());
+  return organizeRuleSet(rules, incognito);
 }
 
 async function organizeRuleSet(rules, incognito) {
@@ -390,7 +356,7 @@ async function organizeRuleSet(rules, incognito) {
 async function saveAndOrganizeRules(inputRules, incognito) {
   const rules = sanitizeRules(inputRules);
   if (rules.length === 0) throw new Error("Add at least one valid rule.");
-  return runBulkOrganization(() => organizeRuleSet(rules, incognito));
+  return organizeRuleSet(rules, incognito);
 }
 
 async function addTabSiteToRouter(tab) {
@@ -407,39 +373,37 @@ async function addTabSiteToRouter(tab) {
   const [parsedRule] = parseDomainRules(parsedUrl.origin);
   if (!parsedRule) return;
 
-  await runBulkOrganization(async () => {
-    const existingRules = await getRules();
-    const existingRule = existingRules.find((candidate) =>
-      urlMatchesDomains(tab.url, candidate.domains),
-    );
-    const rule = existingRule
-      ? { ...existingRule, domains: [...existingRule.domains], enabled: true }
-      : parsedRule;
-    const rules = existingRule
-      ? existingRules.map((candidate) =>
-          candidate.id === rule.id ? rule : candidate,
-        )
-      : [...existingRules, rule];
+  const existingRules = await getRules();
+  const existingRule = existingRules.find((candidate) =>
+    urlMatchesDomains(tab.url, candidate.domains),
+  );
+  const rule = existingRule
+    ? { ...existingRule, domains: [...existingRule.domains], enabled: true }
+    : parsedRule;
+  const rules = existingRule
+    ? existingRules.map((candidate) =>
+        candidate.id === rule.id ? rule : candidate,
+      )
+    : [...existingRules, rule];
 
-    await saveRuleSet(rules);
-    const [tabs, assignmentState] = await Promise.all([
-      chrome.tabs.query({}),
-      loadAssignmentState(),
-    ]);
-    const result = await organizeRule(
-      rule,
-      tab.incognito,
-      tabs,
-      assignmentState,
-      new Set(),
-      tab.id,
-    );
+  await saveRuleSet(rules);
+  const [tabs, assignmentState] = await Promise.all([
+    chrome.tabs.query({}),
+    loadAssignmentState(),
+  ]);
+  const result = await organizeRule(
+    rule,
+    tab.incognito,
+    tabs,
+    assignmentState,
+    new Set(),
+    tab.id,
+  );
 
-    if (tab.active) {
-      await chrome.tabs.update(tab.id, { active: true });
-      await chrome.windows.update(result.windowId, { focused: true });
-    }
-  });
+  if (tab.active) {
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.windows.update(result.windowId, { focused: true });
+  }
 }
 
 function registerContextMenu() {

@@ -270,7 +270,7 @@ describe("background routing", () => {
     expect(createdWindows).toHaveLength(3);
   });
 
-  test("replays matching tabs opened while a large organization is running", async () => {
+  test("routes matching tabs opened while a large organization is running", async () => {
     tabs.push({
       id: 1,
       windowId: 10,
