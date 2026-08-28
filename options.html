@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Window Router rules</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Window Router</p>
+        <h1>Routing rules</h1>
+        <p>Add one or more domains to each destination. Subdomains match automatically.</p>
+      </header>
+
+      <section id="rules" aria-label="Website routing rules"></section>
+
+      <div class="footer-actions">
+        <button id="add-rule" type="button">+ Add website group</button>
+        <button id="save" class="primary" type="button">Save rules</button>
+      </div>
+      <p id="notice" role="status" aria-live="polite"></p>
+    </main>
+
+    <template id="rule-template">
+      <article class="rule-row">
+        <div class="fields">
+          <label>
+            Name
+            <input class="name" type="text" placeholder="e.g. Documentation" />
+          </label>
+          <label class="domains-label">
+            Domains, separated by commas
+            <input class="domains" type="text" placeholder="e.g. example.com, docs.example.com" />
+          </label>
+          <label class="enabled-label">
+            <input class="enabled" type="checkbox" /> Enabled
+          </label>
+        </div>
+        <button class="delete" type="button" aria-label="Delete rule">Delete</button>
+        <input class="id" type="hidden" />
+      </article>
+    </template>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

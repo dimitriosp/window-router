@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Window Router</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">Chrome extension</p>
+          <h1>Window Router</h1>
+        </div>
+        <button id="open-options" class="icon-button" title="Manage rules" aria-label="Manage rules">⚙</button>
+      </header>
+
+      <p class="intro">Choose which sites belong in this window.</p>
+      <div id="notice" role="status" aria-live="polite"></div>
+      <section id="rules" aria-label="Routing rules"></section>
+    </main>
+
+    <template id="rule-template">
+      <article class="rule-card">
+        <div class="rule-heading">
+          <div>
+            <h2 class="rule-name"></h2>
+            <p class="rule-domains"></p>
+          </div>
+          <label class="switch" title="Enable automatic routing">
+            <input class="rule-toggle" type="checkbox" />
+            <span></span>
+          </label>
+        </div>
+        <p class="rule-status"></p>
+        <div class="actions">
+          <button class="assign primary">Use this window</button>
+          <button class="collect">Collect tabs here</button>
+          <button class="clear text-button">Clear</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

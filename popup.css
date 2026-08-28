@@ -1,0 +1,100 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #f6f7fb;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: 380px;
+  margin: 0;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(103, 92, 255, 0.12), transparent 34%),
+    #f6f7fb;
+}
+
+main { padding: 20px; }
+
+header, .rule-heading, .actions {
+  display: flex;
+  align-items: center;
+}
+
+header { justify-content: space-between; }
+
+.eyebrow {
+  margin: 0 0 3px;
+  color: #6857e5;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1 { margin: 0; font-size: 23px; letter-spacing: -0.03em; }
+.intro { margin: 8px 0 16px; color: #657087; font-size: 13px; }
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #dfe3ed;
+  border-radius: 10px;
+  color: #4e5870;
+  background: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  font-size: 17px;
+}
+
+#notice {
+  display: none;
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  color: #27533e;
+  background: #e7f7ee;
+  font-size: 12px;
+}
+
+#notice.error { color: #7d2834; background: #ffebee; }
+
+.rule-card {
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px solid #e2e5ee;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 18px rgba(28, 35, 52, 0.05);
+}
+
+.rule-heading { justify-content: space-between; gap: 12px; }
+.rule-name { margin: 0; font-size: 15px; }
+.rule-domains { margin: 3px 0 0; color: #7a8499; font-size: 11px; }
+.rule-status { margin: 10px 0 12px; color: #657087; font-size: 12px; }
+.rule-status.here { color: #27815b; font-weight: 700; }
+.actions { flex-wrap: wrap; gap: 7px; }
+
+button {
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: #404a61;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+button:hover { border-color: #9ca5b8; }
+button.primary { border-color: #675cff; color: #fff; background: #675cff; }
+button.text-button { border-color: transparent; color: #7a8499; background: transparent; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+
+.switch { position: relative; width: 34px; height: 20px; flex: 0 0 auto; }
+.switch input { width: 0; height: 0; opacity: 0; }
+.switch span { position: absolute; inset: 0; border-radius: 20px; background: #c7ccd7; cursor: pointer; transition: 0.16s; }
+.switch span::before { position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: #fff; content: ""; transition: 0.16s; }
+.switch input:checked + span { background: #675cff; }
+.switch input:checked + span::before { transform: translateX(14px); }
