@@ -1,6 +1,7 @@
 const domainInput = document.querySelector("#domains");
 const organizeButton = document.querySelector("#organize");
 const autoCreateToggle = document.querySelector("#auto-create-windows");
+const autoMergeSelect = document.querySelector("#auto-merge-threshold");
 const notice = document.querySelector("#notice");
 const resultsSection = document.querySelector("#results");
 const resultList = document.querySelector("#result-list");
@@ -19,11 +20,16 @@ async function send(message) {
 
 async function loadState() {
   try {
-    const { rules, autoCreateWindows } = await send({ type: "GET_STATE" });
+    const { rules, autoCreateWindows, autoMergeThreshold } = await send({
+      type: "GET_STATE",
+    });
     domainInput.value = rules.map((rule) => rule.domains[0]).join("\n");
     autoCreateToggle.checked = autoCreateWindows;
+    autoMergeSelect.value = String(autoMergeThreshold);
+    autoMergeSelect.dataset.savedValue = autoMergeSelect.value;
   } finally {
     autoCreateToggle.disabled = false;
+    autoMergeSelect.disabled = false;
   }
 }
 
@@ -88,6 +94,30 @@ autoCreateToggle.addEventListener("change", async () => {
     showNotice(error.message, true);
   } finally {
     autoCreateToggle.disabled = false;
+  }
+});
+
+autoMergeSelect.addEventListener("change", async () => {
+  const previousValue = autoMergeSelect.dataset.savedValue ?? "0";
+  const threshold = Number(autoMergeSelect.value);
+  autoMergeSelect.disabled = true;
+  try {
+    const response = await send({
+      type: "SET_AUTO_MERGE_THRESHOLD",
+      threshold,
+    });
+    autoMergeSelect.value = String(response.autoMergeThreshold);
+    autoMergeSelect.dataset.savedValue = autoMergeSelect.value;
+    showNotice(
+      response.autoMergeThreshold === 0
+        ? "Automatic merging is off."
+        : `A matching window will be adopted after ${response.autoMergeThreshold} tab${response.autoMergeThreshold === 1 ? "" : "s"}.`,
+    );
+  } catch (error) {
+    autoMergeSelect.value = previousValue;
+    showNotice(error.message, true);
+  } finally {
+    autoMergeSelect.disabled = false;
   }
 });
 

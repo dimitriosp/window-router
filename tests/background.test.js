@@ -370,6 +370,123 @@ describe("background routing", () => {
     expect(tabs.find((tab) => tab.id === 1).windowId).toBe(20);
   });
 
+  test("adopts an existing window after the configured matching-tab threshold", async () => {
+    localData.routingRules = [
+      {
+        id: "x-twitter",
+        name: "X / Twitter",
+        domains: ["x.com", "twitter.com"],
+        enabled: true,
+      },
+    ];
+
+    const settingResponse = await sendMessage({
+      type: "SET_AUTO_MERGE_THRESHOLD",
+      threshold: 3,
+    });
+    expect(settingResponse).toEqual({ ok: true, autoMergeThreshold: 3 });
+    await sendMessage({ type: "SET_AUTO_CREATE_WINDOWS", enabled: true });
+
+    tabs.push(
+      {
+        id: 1,
+        windowId: 20,
+        incognito: false,
+        url: "https://x.com/home",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 20,
+        incognito: false,
+        url: "https://x.com/messages",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 3,
+        windowId: 20,
+        incognito: false,
+        url: "https://twitter.com/settings",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 4,
+        windowId: 10,
+        incognito: false,
+        url: "https://x.com/explore",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    events.updated.emit(4, { url: tabs[3].url }, structuredClone(tabs[3]));
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 4).windowId).toBe(20);
+    expect(sessionData.windowBindings["x-twitter:regular"]).toEqual({
+      windowId: 20,
+      source: "automatic",
+    });
+    expect(createdWindows).toEqual([]);
+    expect((await sendMessage({ type: "GET_STATE" })).autoMergeThreshold).toBe(3);
+  });
+
+  test("does not adopt a window before it reaches the configured threshold", async () => {
+    localData.routingRules = [
+      {
+        id: "x-twitter",
+        name: "X / Twitter",
+        domains: ["x.com", "twitter.com"],
+        enabled: true,
+      },
+    ];
+    await sendMessage({ type: "SET_AUTO_MERGE_THRESHOLD", threshold: 4 });
+    tabs.push(
+      {
+        id: 1,
+        windowId: 20,
+        incognito: false,
+        url: "https://x.com/home",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 20,
+        incognito: false,
+        url: "https://x.com/messages",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 3,
+        windowId: 20,
+        incognito: false,
+        url: "https://twitter.com/settings",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 4,
+        windowId: 10,
+        incognito: false,
+        url: "https://x.com/explore",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    events.updated.emit(4, { url: tabs[3].url }, structuredClone(tabs[3]));
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 4).windowId).toBe(10);
+    expect(sessionData.windowBindings?.["x-twitter:regular"]).toBeUndefined();
+    expect(createdWindows).toEqual([]);
+  });
+
   test("creates dedicated windows in one action and routes future tabs", async () => {
     tabs.push(
       {

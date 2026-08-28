@@ -16,6 +16,7 @@ const STARTUP_RECOVERY_KEY = "startupRecoveryPending";
 const DEFERRED_TABS_KEY = "startupDeferredTabIds";
 const ORGANIZED_RULES_KEY = "organizedRuleWindows";
 const AUTO_CREATE_WINDOWS_KEY = "autoCreateWindows";
+const AUTO_MERGE_THRESHOLD_KEY = "autoMergeThreshold";
 const STARTUP_RECOVERY_ALARM = "finish-startup-recovery";
 const ADD_SITE_MENU_ID = "add-site-to-window-router";
 const movingTabs = new Set();
@@ -58,6 +59,18 @@ async function getOrganizedRules() {
 async function getAutoCreateWindows() {
   const stored = await chrome.storage.local.get(AUTO_CREATE_WINDOWS_KEY);
   return Boolean(stored[AUTO_CREATE_WINDOWS_KEY]);
+}
+
+function normalizeAutoMergeThreshold(value) {
+  const threshold = Number(value);
+  return Number.isInteger(threshold) && threshold >= 1 && threshold <= 4
+    ? threshold
+    : 0;
+}
+
+async function getAutoMergeThreshold() {
+  const stored = await chrome.storage.local.get(AUTO_MERGE_THRESHOLD_KEY);
+  return normalizeAutoMergeThreshold(stored[AUTO_MERGE_THRESHOLD_KEY]);
 }
 
 async function isUsableWindow(windowId, incognito) {
@@ -137,25 +150,48 @@ async function findDestination(rule, sourceTab) {
   return null;
 }
 
+async function saveAutomaticAssignment(rule, incognito, windowId) {
+  const key = bindingKey(rule.id, incognito);
+  const assignmentState = await loadAssignmentState();
+  assignmentState.bindings[key] = { windowId, source: "automatic" };
+  assignmentState.intents[key] = true;
+  assignmentState.organizedRules[key] = true;
+  await saveAssignmentState(assignmentState);
+}
+
 async function createAutomaticDestination(rule, tab) {
-  const key = bindingKey(rule.id, tab.incognito);
   movingTabs.add(tab.id);
   try {
     const createdWindow = await chrome.windows.create({
       tabId: tab.id,
       focused: Boolean(tab.active),
     });
-    const assignmentState = await loadAssignmentState();
-    assignmentState.bindings[key] = {
-      windowId: createdWindow.id,
-      source: "automatic",
-    };
-    assignmentState.intents[key] = true;
-    assignmentState.organizedRules[key] = true;
-    await saveAssignmentState(assignmentState);
+    await saveAutomaticAssignment(rule, tab.incognito, createdWindow.id);
   } finally {
     movingTabs.delete(tab.id);
   }
+}
+
+async function adoptThresholdDestination(rule, tab, threshold) {
+  if (threshold === 0) return null;
+
+  const tabs = await chrome.tabs.query({});
+  const destinationWindowId = selectDestinationWindow(
+    tabs,
+    rule,
+    null,
+    tab.incognito,
+  );
+  const matchingTabCount = tabs.filter(
+    (candidate) =>
+      candidate.windowId === destinationWindowId &&
+      candidate.incognito === Boolean(tab.incognito) &&
+      urlMatchesRule(candidate.url, rule),
+  ).length;
+  if (destinationWindowId === null || matchingTabCount < threshold) return null;
+
+  await saveAutomaticAssignment(rule, tab.incognito, destinationWindowId);
+  return destinationWindowId;
 }
 
 async function moveTabToWindow(tab, targetWindowId) {
@@ -172,14 +208,22 @@ async function routeTab(tab) {
   if (!tab?.id || !tab.url || movingTabs.has(tab.id)) return;
   if (await deferForStartupRecovery(tab.id)) return;
 
-  const [rules, autoCreateWindows] = await Promise.all([
+  const [rules, autoCreateWindows, autoMergeThreshold] = await Promise.all([
     getRules(),
     getAutoCreateWindows(),
+    getAutoMergeThreshold(),
   ]);
   const rule = rules.find((candidate) => urlMatchesRule(tab.url, candidate));
   if (!rule) return;
 
-  const targetWindowId = await findDestination(rule, tab);
+  let targetWindowId = await findDestination(rule, tab);
+  if (targetWindowId === null) {
+    targetWindowId = await adoptThresholdDestination(
+      rule,
+      tab,
+      autoMergeThreshold,
+    );
+  }
   if (targetWindowId === null) {
     if (autoCreateWindows) await createAutomaticDestination(rule, tab);
     return;
@@ -558,12 +602,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const rules = await getRules();
 
     if (message.type === "GET_STATE") {
-      const [bindings, intents, autoCreateWindows] = await Promise.all([
-        getBindings(),
-        getAssignmentIntents(),
-        getAutoCreateWindows(),
-      ]);
-      sendResponse({ ok: true, rules, bindings, intents, autoCreateWindows });
+      const [bindings, intents, autoCreateWindows, autoMergeThreshold] =
+        await Promise.all([
+          getBindings(),
+          getAssignmentIntents(),
+          getAutoCreateWindows(),
+          getAutoMergeThreshold(),
+        ]);
+      sendResponse({
+        ok: true,
+        rules,
+        bindings,
+        intents,
+        autoCreateWindows,
+        autoMergeThreshold,
+      });
       return;
     }
 
@@ -571,6 +624,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const autoCreateWindows = Boolean(message.enabled);
       await chrome.storage.local.set({ [AUTO_CREATE_WINDOWS_KEY]: autoCreateWindows });
       sendResponse({ ok: true, autoCreateWindows });
+      return;
+    }
+
+    if (message.type === "SET_AUTO_MERGE_THRESHOLD") {
+      const autoMergeThreshold = normalizeAutoMergeThreshold(message.threshold);
+      await chrome.storage.local.set({
+        [AUTO_MERGE_THRESHOLD_KEY]: autoMergeThreshold,
+      });
+      sendResponse({ ok: true, autoMergeThreshold });
       return;
     }
 

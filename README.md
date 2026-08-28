@@ -53,6 +53,18 @@ or right-click action to create replacement windows.
 The setting reacts to website URLs. Typing `linkedin.com` works after Chrome
 loads LinkedIn; searching Google for the word `LinkedIn` remains a Google tab.
 
+### Automatically adopt an existing website window
+
+Use **Auto-merge into an existing window** to choose a threshold from 1 to 4
+tabs. If no destination is assigned and one window reaches that number of tabs
+for the same listed website, Window Router adopts the busiest matching window.
+New matching tabs move there automatically. Select **Off** to disable this
+behavior.
+
+If both automatic settings are enabled, Window Router first looks for an
+existing window that reaches the threshold. It creates a new dedicated window
+only when none qualifies.
+
 ## Add a website from its tab
 
 Right-click a website tab and select **Add this site to Window Router**. The
