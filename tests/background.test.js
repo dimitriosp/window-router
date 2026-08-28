@@ -7,7 +7,7 @@ function createEvent() {
       listeners.push(listener);
     },
     emit(...args) {
-      for (const listener of listeners) listener(...args);
+      return listeners.map((listener) => listener(...args));
     },
     listeners,
   };
@@ -413,11 +413,11 @@ describe("background routing", () => {
       },
     );
 
-    events.contextClicked.emit(
+    const [contextAction] = events.contextClicked.emit(
       { menuItemId: "add-site-to-window-router" },
       structuredClone(clickedTab),
     );
-    await Bun.sleep(20);
+    await contextAction;
 
     expect(localData.routingRules.some((rule) => rule.domains.includes("facebook.com"))).toBe(true);
     expect(createdWindows).toHaveLength(1);
@@ -455,14 +455,48 @@ describe("background routing", () => {
     };
     tabs.push(clickedTab);
 
-    events.contextClicked.emit(
+    const [contextAction] = events.contextClicked.emit(
       { menuItemId: "add-site-to-window-router" },
       structuredClone(clickedTab),
     );
-    await Bun.sleep(10);
+    await contextAction;
 
     expect(localData.routingRules).toBeUndefined();
     expect(createdWindows).toEqual([]);
+  });
+
+  test("queues repeated context-menu actions instead of dropping them", async () => {
+    const facebookTab = {
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "https://facebook.com/home",
+      active: false,
+      pinned: false,
+    };
+    const githubTab = {
+      id: 2,
+      windowId: 20,
+      incognito: false,
+      url: "https://github.com/openai",
+      active: false,
+      pinned: false,
+    };
+    tabs.push(facebookTab, githubTab);
+
+    const [facebookAction] = events.contextClicked.emit(
+      { menuItemId: "add-site-to-window-router" },
+      structuredClone(facebookTab),
+    );
+    const [githubAction] = events.contextClicked.emit(
+      { menuItemId: "add-site-to-window-router" },
+      structuredClone(githubTab),
+    );
+    await Promise.all([facebookAction, githubAction]);
+
+    expect(createdWindows).toHaveLength(2);
+    expect(tabs.find((tab) => tab.id === 1).windowId).toBe(100);
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(101);
   });
 
   test("waits for restored tabs to settle before recovering a window", async () => {

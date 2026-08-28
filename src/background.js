@@ -19,7 +19,7 @@ const STARTUP_RECOVERY_ALARM = "finish-startup-recovery";
 const ADD_SITE_MENU_ID = "add-site-to-window-router";
 const movingTabs = new Set();
 const bulkDeferredTabIds = new Set();
-let routingQueue = Promise.resolve();
+let workQueue = Promise.resolve();
 let startupRecoveryPending = false;
 let bulkOrganizationActive = false;
 
@@ -179,9 +179,15 @@ async function routeTab(tab) {
 }
 
 function queueRoute(tab) {
-  routingQueue = routingQueue.then(() => routeTab(tab)).catch((error) => {
+  void enqueueWork(() => routeTab(tab)).catch((error) => {
     console.warn("Window Router routing failed.", error);
   });
+}
+
+function enqueueWork(task) {
+  const result = workQueue.then(task);
+  workQueue = result.catch(() => {});
+  return result;
 }
 
 async function moveMatchingTabs(tabs, targetWindowId) {
@@ -492,31 +498,37 @@ async function finishStartupRecovery() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  void getRules();
+  void enqueueWork(() => getRules()).catch((error) => {
+    console.warn("Window Router could not initialize its rules.", error);
+  });
   registerContextMenu();
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== ADD_SITE_MENU_ID) return;
-  void addTabSiteToRouter(tab).catch((error) => {
+  return enqueueWork(() => addTabSiteToRouter(tab)).catch((error) => {
     console.warn("Window Router could not add this site.", error);
   });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  startupRecoveryPending = true;
-  void chrome.storage.session
-    .set({ [STARTUP_RECOVERY_KEY]: true, [DEFERRED_TABS_KEY]: [] })
-    .then(() =>
-      chrome.alarms.create(STARTUP_RECOVERY_ALARM, {
+  void enqueueWork(async () => {
+    startupRecoveryPending = true;
+    await chrome.storage.session.set({
+      [STARTUP_RECOVERY_KEY]: true,
+      [DEFERRED_TABS_KEY]: [],
+    });
+    await chrome.alarms.create(STARTUP_RECOVERY_ALARM, {
         when: Date.now() + 1000,
-      }),
-    );
+    });
+  }).catch((error) => {
+    console.warn("Window Router startup preparation failed.", error);
+  });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === STARTUP_RECOVERY_ALARM) {
-    routingQueue = routingQueue.then(finishStartupRecovery).catch((error) => {
+    void enqueueWork(finishStartupRecovery).catch((error) => {
       console.warn("Window Router startup recovery failed.", error);
     });
   }
@@ -531,7 +543,8 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
-  void getBindings().then((bindings) => {
+  void enqueueWork(async () => {
+    const bindings = await getBindings();
     let changed = false;
     for (const key of Object.keys(bindings)) {
       const binding = bindings[key];
@@ -541,12 +554,14 @@ chrome.windows.onRemoved.addListener((windowId) => {
         changed = true;
       }
     }
-    if (changed) return saveBindings(bindings);
+    if (changed) await saveBindings(bindings);
+  }).catch((error) => {
+    console.warn("Window Router could not clear a closed window.", error);
   });
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  void (async () => {
+  void enqueueWork(async () => {
     const rules = await getRules();
 
     if (message.type === "GET_STATE") {
@@ -593,7 +608,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     throw new Error("Unknown request.");
-  })().catch((error) => {
+  }).catch((error) => {
     sendResponse({ ok: false, error: error.message });
   });
 
