@@ -69,6 +69,10 @@ export function bindingKey(ruleId, incognito) {
   return `${ruleId}:${incognito ? "incognito" : "regular"}`;
 }
 
+export function bindingWindowId(binding) {
+  return typeof binding === "number" ? binding : binding?.windowId;
+}
+
 export function normalizeRuleId(value, fallback) {
   return (
     String(value ?? "")

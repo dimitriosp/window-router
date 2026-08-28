@@ -1,6 +1,7 @@
 import {
   DEFAULT_RULES,
   bindingKey,
+  bindingWindowId,
   sanitizeRules,
   selectDestinationWindow,
   urlMatchesDomains,
@@ -10,8 +11,11 @@ import {
 const RULES_KEY = "routingRules";
 const BINDINGS_KEY = "windowBindings";
 const ASSIGNMENT_INTENTS_KEY = "assignmentIntents";
+const STARTUP_RECOVERY_KEY = "startupRecoveryPending";
+const STARTUP_RECOVERY_ALARM = "finish-startup-recovery";
 const movingTabs = new Set();
 let routingQueue = Promise.resolve();
+let startupRecoveryPending = false;
 
 async function getRules() {
   const stored = await chrome.storage.local.get(RULES_KEY);
@@ -51,10 +55,28 @@ async function isUsableWindow(windowId, incognito) {
   }
 }
 
-async function setBinding(ruleId, incognito, windowId, source = "manual") {
-  const bindings = await getBindings();
-  bindings[bindingKey(ruleId, incognito)] = { windowId, source };
-  await saveBindings(bindings);
+async function assignWindow(ruleId, incognito, windowId) {
+  const key = bindingKey(ruleId, incognito);
+  const [bindings, intents] = await Promise.all([
+    getBindings(),
+    getAssignmentIntents(),
+  ]);
+  bindings[key] = { windowId, source: "manual" };
+  intents[key] = true;
+  await Promise.all([saveBindings(bindings), saveAssignmentIntents(intents)]);
+}
+
+async function deferForStartupRecovery() {
+  if (!startupRecoveryPending) {
+    const stored = await chrome.storage.session.get(STARTUP_RECOVERY_KEY);
+    startupRecoveryPending = Boolean(stored[STARTUP_RECOVERY_KEY]);
+  }
+  if (!startupRecoveryPending) return false;
+
+  await chrome.alarms.create(STARTUP_RECOVERY_ALARM, {
+    when: Date.now() + 1000,
+  });
+  return true;
 }
 
 async function clearBinding(ruleId, incognito) {
@@ -69,8 +91,7 @@ async function findDestination(rule, sourceTab) {
   if (!intents[key]) return null;
 
   const binding = bindings[key];
-  const assignedWindowId =
-    typeof binding === "number" ? binding : binding?.windowId;
+  const assignedWindowId = bindingWindowId(binding);
   const bindingSource = typeof binding === "number" ? "manual" : binding?.source;
 
   if (
@@ -106,6 +127,7 @@ async function moveTabToWindow(tab, targetWindowId) {
 
 async function routeTab(tab) {
   if (!tab?.id || !tab.url || movingTabs.has(tab.id)) return;
+  if (await deferForStartupRecovery()) return;
 
   const rules = await getRules();
   const rule = rules.find((candidate) => urlMatchesRule(tab.url, candidate));
@@ -160,8 +182,54 @@ async function collectTabs(rule, targetWindowId, incognito) {
   return matchingTabs.length;
 }
 
+async function finishStartupRecovery() {
+  const [rules, tabs, intents, bindings] = await Promise.all([
+    getRules(),
+    chrome.tabs.query({}),
+    getAssignmentIntents(),
+    getBindings(),
+  ]);
+
+  for (const rule of rules.filter((candidate) => candidate.enabled)) {
+    for (const incognito of [false, true]) {
+      const key = bindingKey(rule.id, incognito);
+      if (!intents[key]) continue;
+      const existingBinding = bindings[key];
+      if (existingBinding?.source === "manual") continue;
+
+      const destination = selectDestinationWindow(tabs, rule, null, incognito);
+      if (destination !== null) {
+        bindings[key] = { windowId: destination, source: "recovered" };
+      }
+    }
+  }
+
+  await saveBindings(bindings);
+  startupRecoveryPending = false;
+  await chrome.storage.session.set({ [STARTUP_RECOVERY_KEY]: false });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   void getRules();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  startupRecoveryPending = true;
+  void chrome.storage.session
+    .set({ [STARTUP_RECOVERY_KEY]: true })
+    .then(() =>
+      chrome.alarms.create(STARTUP_RECOVERY_ALARM, {
+        when: Date.now() + 1000,
+      }),
+    );
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === STARTUP_RECOVERY_ALARM) {
+    void finishStartupRecovery().catch((error) => {
+      console.warn("Window Router startup recovery failed.", error);
+    });
+  }
 });
 
 chrome.tabs.onCreated.addListener((tab) => {
@@ -177,8 +245,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
     let changed = false;
     for (const key of Object.keys(bindings)) {
       const binding = bindings[key];
-      const assignedWindowId =
-        typeof binding === "number" ? binding : binding?.windowId;
+      const assignedWindowId = bindingWindowId(binding);
       if (assignedWindowId === windowId) {
         delete bindings[key];
         changed = true;
@@ -210,10 +277,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!(await isUsableWindow(message.windowId, message.incognito))) {
         throw new Error("The selected Chrome window is no longer available.");
       }
-      await setBinding(rule.id, message.incognito, message.windowId);
-      const intents = await getAssignmentIntents();
-      intents[bindingKey(rule.id, message.incognito)] = true;
-      await saveAssignmentIntents(intents);
+      await assignWindow(rule.id, message.incognito, message.windowId);
       sendResponse({ ok: true });
       return;
     }
@@ -239,10 +303,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     if (message.type === "COLLECT_TABS") {
-      await setBinding(rule.id, message.incognito, message.windowId);
-      const intents = await getAssignmentIntents();
-      intents[bindingKey(rule.id, message.incognito)] = true;
-      await saveAssignmentIntents(intents);
+      if (!(await isUsableWindow(message.windowId, message.incognito))) {
+        throw new Error("The selected Chrome window is no longer available.");
+      }
+      await assignWindow(rule.id, message.incognito, message.windowId);
       const count = await collectTabs(rule, message.windowId, message.incognito);
       sendResponse({ ok: true, count });
       return;

@@ -27,8 +27,7 @@ async function render() {
     const card = template.content.firstElementChild.cloneNode(true);
     const key = `${rule.id}:${currentWindow.incognito ? "incognito" : "regular"}`;
     const binding = bindings[key];
-    const assignedWindowId =
-      typeof binding === "number" ? binding : binding?.windowId;
+    const assignedWindowId = bindingWindowId(binding);
     const isHere = assignedWindowId === currentWindow.id;
     const hasAssignment = Boolean(intents[key]);
 
@@ -118,3 +117,4 @@ document.querySelector("#open-options").addEventListener("click", () => {
 });
 
 render().catch((error) => showNotice(error.message, true));
+import { bindingWindowId } from "./src/router-core.js";

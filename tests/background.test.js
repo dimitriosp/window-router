@@ -36,6 +36,7 @@ const events = {
   created: createEvent(),
   updated: createEvent(),
   removed: createEvent(),
+  alarm: createEvent(),
 };
 
 globalThis.chrome = {
@@ -47,6 +48,10 @@ globalThis.chrome = {
     onInstalled: events.installed,
     onStartup: events.startup,
     onMessage: events.message,
+  },
+  alarms: {
+    onAlarm: events.alarm,
+    async create() {},
   },
   tabs: {
     onCreated: events.created,
@@ -174,5 +179,51 @@ describe("background routing", () => {
 
     expect(response).toEqual({ ok: true, count: 1 });
     expect(moves).toEqual([{ tabId: 1, windowId: 20, index: -1 }]);
+  });
+
+  test("waits for restored tabs to settle before recovering a window", async () => {
+    const restoredTab = {
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "https://youtube.com/watch?v=one",
+      active: false,
+      pinned: false,
+    };
+    tabs.push(restoredTab);
+    localData.assignmentIntents = { "youtube:regular": true };
+
+    events.startup.emit();
+    await Bun.sleep(1);
+    events.updated.emit(
+      restoredTab.id,
+      { url: restoredTab.url },
+      structuredClone(restoredTab),
+    );
+    await finishQueuedRouting();
+
+    expect(moves).toEqual([]);
+
+    tabs.push({
+      id: 2,
+      windowId: 20,
+      incognito: false,
+      url: "https://youtube.com/watch?v=two",
+      active: false,
+      pinned: false,
+    });
+    tabs.push({
+      id: 3,
+      windowId: 20,
+      incognito: false,
+      url: "https://youtube.com/watch?v=three",
+      active: false,
+      pinned: false,
+    });
+    events.alarm.emit({ name: "finish-startup-recovery" });
+    await Bun.sleep(10);
+
+    expect(sessionData.windowBindings["youtube:regular"].windowId).toBe(20);
+    expect(sessionData.startupRecoveryPending).toBe(false);
   });
 });

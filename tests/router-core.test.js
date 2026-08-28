@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  bindingWindowId,
   normalizeDomain,
   normalizeRuleId,
   sanitizeRules,
@@ -75,6 +76,12 @@ describe("destination recovery", () => {
 });
 
 describe("rule sanitation", () => {
+  test("reads current and legacy binding records", () => {
+    expect(bindingWindowId({ windowId: 42, source: "manual" })).toBe(42);
+    expect(bindingWindowId(17)).toBe(17);
+    expect(bindingWindowId(undefined)).toBeUndefined();
+  });
+
   test("uses one rule ID normalization contract", () => {
     expect(normalizeRuleId(" My Docs ", "fallback")).toBe("my-docs");
     expect(normalizeRuleId("", "fallback")).toBe("fallback");

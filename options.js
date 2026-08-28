@@ -26,10 +26,6 @@ async function loadRules() {
   response.rules.forEach(addRuleRow);
 }
 
-function makeId(name, index) {
-  return normalizeRuleId(name, `custom-${Date.now()}-${index}`);
-}
-
 async function saveRules() {
   const rows = [...rulesContainer.querySelectorAll(".rule-row")];
   const rules = rows.map((row, index) => {
@@ -40,7 +36,9 @@ async function saveRules() {
       .map(normalizeDomain)
       .filter(Boolean);
     return {
-      id: row.querySelector(".id").value || makeId(name, index),
+      id:
+        row.querySelector(".id").value ||
+        normalizeRuleId(name, `custom-${Date.now()}-${index}`),
       name,
       domains,
       enabled: row.querySelector(".enabled").checked,

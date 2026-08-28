@@ -2,7 +2,7 @@
 
 Window Router sends matching tabs to a Chrome window that you choose. It ships
 with rules for YouTube, X/Twitter, LinkedIn, and GitHub, and supports custom
-domain groups.
+domain groups. It requires Chrome 111 or later.
 
 ## Install
 
@@ -38,8 +38,9 @@ subdomains.
 
 Chrome window IDs do not survive a complete browser restart. Window Router
 remembers which rules you assigned, then recovers by selecting the restored
-window that contains the most matching tabs. Recovery stays adaptive while tabs
-finish restoring. If Chrome did not restore any matching tabs, the first window
+window that contains the most matching tabs. During startup, it waits briefly
+for restored tab activity to settle before choosing. Recovery stays adaptive if
+more tabs appear later. If Chrome did not restore any matching tabs, the first window
 that opens one becomes the recovered destination. Use **Use this window** again
 if Chrome cannot infer the intended empty destination window.
 
