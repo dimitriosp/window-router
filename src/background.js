@@ -12,6 +12,7 @@ const RULES_KEY = "routingRules";
 const BINDINGS_KEY = "windowBindings";
 const ASSIGNMENT_INTENTS_KEY = "assignmentIntents";
 const STARTUP_RECOVERY_KEY = "startupRecoveryPending";
+const DEFERRED_TABS_KEY = "startupDeferredTabIds";
 const STARTUP_RECOVERY_ALARM = "finish-startup-recovery";
 const movingTabs = new Set();
 let routingQueue = Promise.resolve();
@@ -56,6 +57,10 @@ async function isUsableWindow(windowId, incognito) {
 }
 
 async function assignWindow(ruleId, incognito, windowId) {
+  if (!(await isUsableWindow(windowId, incognito))) {
+    throw new Error("The selected Chrome window is no longer available.");
+  }
+
   const key = bindingKey(ruleId, incognito);
   const [bindings, intents] = await Promise.all([
     getBindings(),
@@ -66,13 +71,19 @@ async function assignWindow(ruleId, incognito, windowId) {
   await Promise.all([saveBindings(bindings), saveAssignmentIntents(intents)]);
 }
 
-async function deferForStartupRecovery() {
+async function deferForStartupRecovery(tabId) {
   if (!startupRecoveryPending) {
     const stored = await chrome.storage.session.get(STARTUP_RECOVERY_KEY);
     startupRecoveryPending = Boolean(stored[STARTUP_RECOVERY_KEY]);
   }
   if (!startupRecoveryPending) return false;
 
+  const stored = await chrome.storage.session.get(DEFERRED_TABS_KEY);
+  const deferredTabIds = new Set(stored[DEFERRED_TABS_KEY] ?? []);
+  deferredTabIds.add(tabId);
+  await chrome.storage.session.set({
+    [DEFERRED_TABS_KEY]: [...deferredTabIds],
+  });
   await chrome.alarms.create(STARTUP_RECOVERY_ALARM, {
     when: Date.now() + 1000,
   });
@@ -127,7 +138,7 @@ async function moveTabToWindow(tab, targetWindowId) {
 
 async function routeTab(tab) {
   if (!tab?.id || !tab.url || movingTabs.has(tab.id)) return;
-  if (await deferForStartupRecovery()) return;
+  if (await deferForStartupRecovery(tab.id)) return;
 
   const rules = await getRules();
   const rule = rules.find((candidate) => urlMatchesRule(tab.url, candidate));
@@ -158,10 +169,6 @@ function queueRoute(tab) {
 }
 
 async function collectTabs(rule, targetWindowId, incognito) {
-  if (!(await isUsableWindow(targetWindowId, incognito))) {
-    throw new Error("The selected Chrome window is no longer available.");
-  }
-
   const tabs = await chrome.tabs.query({});
   const matchingTabs = tabs.filter(
     (tab) =>
@@ -183,6 +190,12 @@ async function collectTabs(rule, targetWindowId, incognito) {
 }
 
 async function finishStartupRecovery() {
+  const recoveryState = await chrome.storage.session.get([
+    STARTUP_RECOVERY_KEY,
+    DEFERRED_TABS_KEY,
+  ]);
+  if (!recoveryState[STARTUP_RECOVERY_KEY]) return;
+
   const [rules, tabs, intents, bindings] = await Promise.all([
     getRules(),
     chrome.tabs.query({}),
@@ -206,7 +219,18 @@ async function finishStartupRecovery() {
 
   await saveBindings(bindings);
   startupRecoveryPending = false;
-  await chrome.storage.session.set({ [STARTUP_RECOVERY_KEY]: false });
+  await chrome.storage.session.set({
+    [STARTUP_RECOVERY_KEY]: false,
+    [DEFERRED_TABS_KEY]: [],
+  });
+
+  for (const tabId of recoveryState[DEFERRED_TABS_KEY] ?? []) {
+    try {
+      await routeTab(await chrome.tabs.get(tabId));
+    } catch {
+      // A deferred tab can close before startup recovery finishes.
+    }
+  }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -216,7 +240,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   startupRecoveryPending = true;
   void chrome.storage.session
-    .set({ [STARTUP_RECOVERY_KEY]: true })
+    .set({ [STARTUP_RECOVERY_KEY]: true, [DEFERRED_TABS_KEY]: [] })
     .then(() =>
       chrome.alarms.create(STARTUP_RECOVERY_ALARM, {
         when: Date.now() + 1000,
@@ -226,7 +250,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === STARTUP_RECOVERY_ALARM) {
-    void finishStartupRecovery().catch((error) => {
+    routingQueue = routingQueue.then(finishStartupRecovery).catch((error) => {
       console.warn("Window Router startup recovery failed.", error);
     });
   }
@@ -274,9 +298,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     if (message.type === "ASSIGN_WINDOW") {
-      if (!(await isUsableWindow(message.windowId, message.incognito))) {
-        throw new Error("The selected Chrome window is no longer available.");
-      }
       await assignWindow(rule.id, message.incognito, message.windowId);
       sendResponse({ ok: true });
       return;
@@ -303,9 +324,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     if (message.type === "COLLECT_TABS") {
-      if (!(await isUsableWindow(message.windowId, message.incognito))) {
-        throw new Error("The selected Chrome window is no longer available.");
-      }
       await assignWindow(rule.id, message.incognito, message.windowId);
       const count = await collectTabs(rule, message.windowId, message.incognito);
       sendResponse({ ok: true, count });

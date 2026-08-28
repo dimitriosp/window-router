@@ -21,6 +21,9 @@ const moves = [];
 function storageArea(data) {
   return {
     async get(key) {
+      if (Array.isArray(key)) {
+        return Object.fromEntries(key.map((item) => [item, data[item]]));
+      }
       return { [key]: data[key] };
     },
     async set(values) {
@@ -58,6 +61,11 @@ globalThis.chrome = {
     onUpdated: events.updated,
     async query() {
       return structuredClone(tabs);
+    },
+    async get(tabId) {
+      const tab = tabs.find((candidate) => candidate.id === tabId);
+      if (!tab) throw new Error("Tab not found");
+      return structuredClone(tab);
     },
     async move(tabId, { windowId, index }) {
       const tab = tabs.find((candidate) => candidate.id === tabId);
@@ -221,9 +229,10 @@ describe("background routing", () => {
       pinned: false,
     });
     events.alarm.emit({ name: "finish-startup-recovery" });
-    await Bun.sleep(10);
+    await Bun.sleep(20);
 
     expect(sessionData.windowBindings["youtube:regular"].windowId).toBe(20);
     expect(sessionData.startupRecoveryPending).toBe(false);
+    expect(moves).toEqual([{ tabId: 1, windowId: 20, index: -1 }]);
   });
 });
