@@ -19,6 +19,7 @@ const tabs = [];
 const moves = [];
 const createdWindows = [];
 let nextWindowId = 100;
+let windowCreateHook = null;
 
 function storageArea(data) {
   return {
@@ -102,6 +103,7 @@ globalThis.chrome = {
           pinned: false,
         });
       }
+      windowCreateHook?.();
       return { id: windowId, type: "normal", incognito: Boolean(properties.incognito) };
     },
     async get(windowId) {
@@ -134,6 +136,7 @@ beforeEach(() => {
   moves.length = 0;
   createdWindows.length = 0;
   nextWindowId = 100;
+  windowCreateHook = null;
 });
 
 describe("background routing", () => {
@@ -159,58 +162,6 @@ describe("background routing", () => {
     await finishQueuedRouting();
 
     expect(moves).toEqual([]);
-  });
-
-  test("routes to a window after explicit assignment", async () => {
-    const source = {
-      id: 1,
-      windowId: 10,
-      incognito: false,
-      url: "https://youtube.com/watch?v=new",
-      active: false,
-      pinned: false,
-    };
-    tabs.push(source);
-
-    expect(
-      await sendMessage({
-        type: "ASSIGN_WINDOW",
-        ruleId: "youtube",
-        windowId: 20,
-        incognito: false,
-      }),
-    ).toEqual({ ok: true });
-
-    events.updated.emit(source.id, { url: source.url }, structuredClone(source));
-    await finishQueuedRouting();
-
-    expect(moves).toEqual([{ tabId: 1, windowId: 20, index: -1 }]);
-  });
-
-  test("collects matching tabs even when automatic routing is disabled", async () => {
-    tabs.push({
-      id: 1,
-      windowId: 10,
-      incognito: false,
-      url: "https://youtube.com/watch?v=one",
-      active: false,
-      pinned: false,
-    });
-
-    await sendMessage({
-      type: "SET_RULE_ENABLED",
-      ruleId: "youtube",
-      enabled: false,
-    });
-    const response = await sendMessage({
-      type: "COLLECT_TABS",
-      ruleId: "youtube",
-      windowId: 20,
-      incognito: false,
-    });
-
-    expect(response).toEqual({ ok: true, count: 1 });
-    expect(moves).toEqual([{ tabId: 1, windowId: 20, index: -1 }]);
   });
 
   test("creates dedicated windows in one action and routes future tabs", async () => {
@@ -290,6 +241,74 @@ describe("background routing", () => {
     });
     expect(secondResponse.created).toBe(0);
     expect(createdWindows).toHaveLength(3);
+  });
+
+  test("replays matching tabs opened while a large organization is running", async () => {
+    tabs.push({
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "https://youtube.com/watch?v=existing",
+      active: false,
+      pinned: false,
+    });
+    windowCreateHook = () => {
+      windowCreateHook = null;
+      const newTab = {
+        id: 2,
+        windowId: 20,
+        incognito: false,
+        url: "https://youtube.com/watch?v=during",
+        active: false,
+        pinned: false,
+      };
+      tabs.push(newTab);
+      events.updated.emit(newTab.id, { url: newTab.url }, structuredClone(newTab));
+    };
+
+    await sendMessage({
+      type: "ORGANIZE_DOMAINS",
+      input: "youtube.com",
+      incognito: false,
+    });
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(100);
+  });
+
+  test("preserves an advanced multi-domain group", async () => {
+    localData.routingRules = [
+      {
+        id: "notion",
+        name: "Notion",
+        domains: ["notion.so", "notion.site"],
+        enabled: true,
+      },
+    ];
+    tabs.push({
+      id: 1,
+      windowId: 10,
+      incognito: false,
+      url: "https://workspace.notion.site/page",
+      active: false,
+      pinned: false,
+    });
+
+    await sendMessage({
+      type: "ORGANIZE_DOMAINS",
+      input: "notion.so",
+      incognito: false,
+    });
+
+    expect(localData.routingRules).toEqual([
+      {
+        id: "notion",
+        name: "Notion",
+        domains: ["notion.so", "notion.site"],
+        enabled: true,
+      },
+    ]);
+    expect(tabs[0].windowId).toBe(100);
   });
 
   test("waits for restored tabs to settle before recovering a window", async () => {

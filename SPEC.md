@@ -16,6 +16,8 @@ future matching tabs to those windows.
 - Treat a single word such as `linkedin` as `linkedin.com`.
 - Keep known aliases together: `youtube.com` with `youtu.be`, and `x.com` with
   `twitter.com`.
+- Preserve multi-domain groups created in the advanced rules page when their
+  domain remains in the simple organizer field.
 - Move a matching tab after its URL becomes available or changes.
 - Do not move a tab that is already in the assigned window.
 - Keep normal and incognito window assignments separate.

@@ -25,13 +25,6 @@ export const DEFAULT_RULES = Object.freeze([
   },
 ]);
 
-const KNOWN_DOMAIN_GROUPS = Object.freeze([
-  DEFAULT_RULES[0],
-  DEFAULT_RULES[1],
-  DEFAULT_RULES[2],
-  DEFAULT_RULES[3],
-]);
-
 export function normalizeDomain(input) {
   const value = String(input ?? "").trim().toLowerCase();
   if (!value) return null;
@@ -105,7 +98,7 @@ export function parseDomainRules(input) {
     );
     if (!domain) continue;
 
-    const knownGroup = KNOWN_DOMAIN_GROUPS.find((group) =>
+    const knownGroup = DEFAULT_RULES.find((group) =>
       group.domains.includes(domain),
     );
     const rule = knownGroup
