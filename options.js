@@ -51,7 +51,7 @@ async function saveRules() {
 
   const response = await chrome.runtime.sendMessage({ type: "SAVE_RULES", rules });
   if (!response?.ok) throw new Error(response?.error ?? "Could not save rules.");
-  showNotice("Rules saved. Use the extension popup to assign each rule to a window.");
+  showNotice("Rules saved. Open the extension popup and run Organize all open tabs.");
   await loadRules();
 }
 

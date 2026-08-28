@@ -331,12 +331,6 @@ async function organizeDomains(input, incognito) {
       });
     }
 
-    await Promise.all([
-      saveBindings(bindings),
-      saveAssignmentIntents(intents),
-      chrome.storage.local.set({ [ORGANIZED_RULES_KEY]: organizedRules }),
-    ]);
-
     return {
       rules,
       results,
