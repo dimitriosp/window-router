@@ -112,41 +112,29 @@ async function clearBinding(ruleId, incognito) {
   await saveBindings(bindings);
 }
 
-async function findDestination(rule, sourceTab, allowUnassigned = false) {
+async function findDestination(rule, sourceTab) {
   const key = bindingKey(rule.id, sourceTab.incognito);
   const [bindings, intents] = await Promise.all([getBindings(), getAssignmentIntents()]);
-  if (!intents[key] && !allowUnassigned) return null;
+  if (!intents[key]) return null;
 
   const binding = bindings[key];
   const assignedWindowId = bindingWindowId(binding);
   const bindingSource = typeof binding === "number" ? "manual" : binding?.source;
 
   if (
-    (bindingSource === "manual" || bindingSource === "automatic") &&
+    (bindingSource === "manual" ||
+      bindingSource === "automatic" ||
+      bindingSource === "recovered") &&
     (await isUsableWindow(assignedWindowId, sourceTab.incognito))
   ) {
     return assignedWindowId;
   }
 
-  const tabs = await chrome.tabs.query({});
-  const recoveredWindowId = selectDestinationWindow(
-    tabs,
-    rule,
-    sourceTab.windowId,
-    sourceTab.incognito,
-  );
-  if (recoveredWindowId === sourceTab.windowId) {
-    if (binding) {
-      delete bindings[key];
-      await saveBindings(bindings);
-    }
-    return null;
-  }
-  if (recoveredWindowId !== null) {
-    bindings[key] = { windowId: recoveredWindowId, source: "recovered" };
+  if (binding) {
+    delete bindings[key];
     await saveBindings(bindings);
   }
-  return recoveredWindowId;
+  return null;
 }
 
 async function createAutomaticDestination(rule, tab) {
@@ -191,7 +179,7 @@ async function routeTab(tab) {
   const rule = rules.find((candidate) => urlMatchesRule(tab.url, candidate));
   if (!rule) return;
 
-  const targetWindowId = await findDestination(rule, tab, autoCreateWindows);
+  const targetWindowId = await findDestination(rule, tab);
   if (targetWindowId === null) {
     if (autoCreateWindows) await createAutomaticDestination(rule, tab);
     return;

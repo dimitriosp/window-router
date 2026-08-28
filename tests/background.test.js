@@ -231,6 +231,44 @@ describe("background routing", () => {
     expect(tabs[0].windowId).toBe(100);
   });
 
+  test("does not infer another ordinary window after a destination was closed", async () => {
+    localData.routingRules = [
+      {
+        id: "linkedin",
+        name: "LinkedIn",
+        domains: ["linkedin.com"],
+        enabled: true,
+      },
+    ];
+    localData.assignmentIntents = { "linkedin:regular": true };
+    localData.organizedRuleWindows = { "linkedin:regular": true };
+    tabs.push(
+      {
+        id: 1,
+        windowId: 20,
+        incognito: false,
+        url: "https://linkedin.com/in/existing",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 10,
+        incognito: false,
+        url: "https://linkedin.com/feed",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    events.updated.emit(2, { url: tabs[1].url }, structuredClone(tabs[1]));
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(10);
+    expect(sessionData.windowBindings?.["linkedin:regular"]).toBeUndefined();
+    expect(createdWindows).toEqual([]);
+  });
+
   test("can automatically create a dedicated window for a listed site", async () => {
     localData.routingRules = [
       {
@@ -291,6 +329,45 @@ describe("background routing", () => {
 
     expect(tabs.find((tab) => tab.id === 2).windowId).toBe(100);
     expect(createdWindows).toHaveLength(1);
+  });
+
+  test("automatic mode creates a replacement instead of inferring an ordinary window", async () => {
+    localData.routingRules = [
+      {
+        id: "linkedin",
+        name: "LinkedIn",
+        domains: ["linkedin.com"],
+        enabled: true,
+      },
+    ];
+    await sendMessage({ type: "SET_AUTO_CREATE_WINDOWS", enabled: true });
+    tabs.push(
+      {
+        id: 1,
+        windowId: 20,
+        incognito: false,
+        url: "https://linkedin.com/in/existing",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 10,
+        incognito: false,
+        url: "https://linkedin.com/feed",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    events.updated.emit(2, { url: tabs[1].url }, structuredClone(tabs[1]));
+    await finishQueuedRouting();
+
+    expect(createdWindows).toEqual([
+      { windowId: 100, tabId: 2, focused: true },
+    ]);
+    expect(tabs.find((tab) => tab.id === 2).windowId).toBe(100);
+    expect(tabs.find((tab) => tab.id === 1).windowId).toBe(20);
   });
 
   test("creates dedicated windows in one action and routes future tabs", async () => {

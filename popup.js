@@ -18,9 +18,13 @@ async function send(message) {
 }
 
 async function loadState() {
-  const { rules, autoCreateWindows } = await send({ type: "GET_STATE" });
-  domainInput.value = rules.map((rule) => rule.domains[0]).join("\n");
-  autoCreateToggle.checked = autoCreateWindows;
+  try {
+    const { rules, autoCreateWindows } = await send({ type: "GET_STATE" });
+    domainInput.value = rules.map((rule) => rule.domains[0]).join("\n");
+    autoCreateToggle.checked = autoCreateWindows;
+  } finally {
+    autoCreateToggle.disabled = false;
+  }
 }
 
 function renderResults(response) {
@@ -72,7 +76,8 @@ autoCreateToggle.addEventListener("change", async () => {
   const enabled = autoCreateToggle.checked;
   autoCreateToggle.disabled = true;
   try {
-    await send({ type: "SET_AUTO_CREATE_WINDOWS", enabled });
+    const response = await send({ type: "SET_AUTO_CREATE_WINDOWS", enabled });
+    autoCreateToggle.checked = response.autoCreateWindows;
     showNotice(
       enabled
         ? "Automatic window creation is on for listed sites."
