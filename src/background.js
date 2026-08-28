@@ -3,11 +3,13 @@ import {
   bindingKey,
   sanitizeRules,
   selectDestinationWindow,
+  urlMatchesDomains,
   urlMatchesRule,
 } from "./router-core.js";
 
 const RULES_KEY = "routingRules";
 const BINDINGS_KEY = "windowBindings";
+const ASSIGNMENT_INTENTS_KEY = "assignmentIntents";
 const movingTabs = new Set();
 let routingQueue = Promise.resolve();
 
@@ -30,6 +32,15 @@ async function saveBindings(bindings) {
   await chrome.storage.session.set({ [BINDINGS_KEY]: bindings });
 }
 
+async function getAssignmentIntents() {
+  const stored = await chrome.storage.local.get(ASSIGNMENT_INTENTS_KEY);
+  return stored[ASSIGNMENT_INTENTS_KEY] ?? {};
+}
+
+async function saveAssignmentIntents(intents) {
+  await chrome.storage.local.set({ [ASSIGNMENT_INTENTS_KEY]: intents });
+}
+
 async function isUsableWindow(windowId, incognito) {
   if (!Number.isInteger(windowId)) return false;
   try {
@@ -40,9 +51,9 @@ async function isUsableWindow(windowId, incognito) {
   }
 }
 
-async function setBinding(ruleId, incognito, windowId) {
+async function setBinding(ruleId, incognito, windowId, source = "manual") {
   const bindings = await getBindings();
-  bindings[bindingKey(ruleId, incognito)] = windowId;
+  bindings[bindingKey(ruleId, incognito)] = { windowId, source };
   await saveBindings(bindings);
 }
 
@@ -54,10 +65,18 @@ async function clearBinding(ruleId, incognito) {
 
 async function findDestination(rule, sourceTab) {
   const key = bindingKey(rule.id, sourceTab.incognito);
-  const bindings = await getBindings();
-  const assignedWindowId = bindings[key];
+  const [bindings, intents] = await Promise.all([getBindings(), getAssignmentIntents()]);
+  if (!intents[key]) return null;
 
-  if (await isUsableWindow(assignedWindowId, sourceTab.incognito)) {
+  const binding = bindings[key];
+  const assignedWindowId =
+    typeof binding === "number" ? binding : binding?.windowId;
+  const bindingSource = typeof binding === "number" ? "manual" : binding?.source;
+
+  if (
+    bindingSource === "manual" &&
+    (await isUsableWindow(assignedWindowId, sourceTab.incognito))
+  ) {
     return assignedWindowId;
   }
 
@@ -69,10 +88,20 @@ async function findDestination(rule, sourceTab) {
     sourceTab.incognito,
   );
   if (recoveredWindowId !== null) {
-    bindings[key] = recoveredWindowId;
+    bindings[key] = { windowId: recoveredWindowId, source: "recovered" };
     await saveBindings(bindings);
   }
   return recoveredWindowId;
+}
+
+async function moveTabToWindow(tab, targetWindowId) {
+  const movedTab = await chrome.tabs.move(tab.id, {
+    windowId: targetWindowId,
+    index: tab.pinned ? 0 : -1,
+  });
+  if (tab.pinned && !movedTab.pinned) {
+    await chrome.tabs.update(tab.id, { pinned: true });
+  }
 }
 
 async function routeTab(tab) {
@@ -87,13 +116,7 @@ async function routeTab(tab) {
 
   movingTabs.add(tab.id);
   try {
-    const movedTab = await chrome.tabs.move(tab.id, {
-      windowId: targetWindowId,
-      index: tab.pinned ? 0 : -1,
-    });
-    if (tab.pinned && !movedTab.pinned) {
-      await chrome.tabs.update(tab.id, { pinned: true });
-    }
+    await moveTabToWindow(tab, targetWindowId);
     if (tab.active) {
       await chrome.tabs.update(tab.id, { active: true });
       await chrome.windows.update(targetWindowId, { focused: true });
@@ -112,20 +135,6 @@ function queueRoute(tab) {
   });
 }
 
-async function rebuildBindings() {
-  const [rules, tabs] = await Promise.all([getRules(), chrome.tabs.query({})]);
-  const bindings = {};
-
-  for (const rule of rules.filter((candidate) => candidate.enabled)) {
-    for (const incognito of [false, true]) {
-      const destination = selectDestinationWindow(tabs, rule, null, incognito);
-      if (destination !== null) bindings[bindingKey(rule.id, incognito)] = destination;
-    }
-  }
-
-  await saveBindings(bindings);
-}
-
 async function collectTabs(rule, targetWindowId, incognito) {
   if (!(await isUsableWindow(targetWindowId, incognito))) {
     throw new Error("The selected Chrome window is no longer available.");
@@ -136,19 +145,13 @@ async function collectTabs(rule, targetWindowId, incognito) {
     (tab) =>
       tab.windowId !== targetWindowId &&
       tab.incognito === Boolean(incognito) &&
-      urlMatchesRule(tab.url, rule),
+      urlMatchesDomains(tab.url, rule.domains),
   );
 
   for (const tab of matchingTabs) {
     movingTabs.add(tab.id);
     try {
-      const movedTab = await chrome.tabs.move(tab.id, {
-        windowId: targetWindowId,
-        index: tab.pinned ? 0 : -1,
-      });
-      if (tab.pinned && !movedTab.pinned) {
-        await chrome.tabs.update(tab.id, { pinned: true });
-      }
+      await moveTabToWindow(tab, targetWindowId);
     } finally {
       movingTabs.delete(tab.id);
     }
@@ -158,11 +161,7 @@ async function collectTabs(rule, targetWindowId, incognito) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  void getRules().then(rebuildBindings);
-});
-
-chrome.runtime.onStartup.addListener(() => {
-  void rebuildBindings();
+  void getRules();
 });
 
 chrome.tabs.onCreated.addListener((tab) => {
@@ -177,7 +176,10 @@ chrome.windows.onRemoved.addListener((windowId) => {
   void getBindings().then((bindings) => {
     let changed = false;
     for (const key of Object.keys(bindings)) {
-      if (bindings[key] === windowId) {
+      const binding = bindings[key];
+      const assignedWindowId =
+        typeof binding === "number" ? binding : binding?.windowId;
+      if (assignedWindowId === windowId) {
         delete bindings[key];
         changed = true;
       }
@@ -191,8 +193,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const rules = await getRules();
 
     if (message.type === "GET_STATE") {
-      const bindings = await getBindings();
-      sendResponse({ ok: true, rules, bindings });
+      const [bindings, intents] = await Promise.all([
+        getBindings(),
+        getAssignmentIntents(),
+      ]);
+      sendResponse({ ok: true, rules, bindings, intents });
       return;
     }
 
@@ -206,12 +211,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         throw new Error("The selected Chrome window is no longer available.");
       }
       await setBinding(rule.id, message.incognito, message.windowId);
+      const intents = await getAssignmentIntents();
+      intents[bindingKey(rule.id, message.incognito)] = true;
+      await saveAssignmentIntents(intents);
       sendResponse({ ok: true });
       return;
     }
 
     if (message.type === "CLEAR_ASSIGNMENT") {
       await clearBinding(rule.id, message.incognito);
+      const intents = await getAssignmentIntents();
+      delete intents[bindingKey(rule.id, message.incognito)];
+      await saveAssignmentIntents(intents);
       sendResponse({ ok: true });
       return;
     }
@@ -229,6 +240,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (message.type === "COLLECT_TABS") {
       await setBinding(rule.id, message.incognito, message.windowId);
+      const intents = await getAssignmentIntents();
+      intents[bindingKey(rule.id, message.incognito)] = true;
+      await saveAssignmentIntents(intents);
       const count = await collectTabs(rule, message.windowId, message.incognito);
       sendResponse({ ok: true, count });
       return;
@@ -240,12 +254,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       await chrome.storage.local.set({ [RULES_KEY]: updatedRules });
 
       const allowedRuleIds = new Set(updatedRules.map((candidate) => candidate.id));
-      const bindings = await getBindings();
+      const [bindings, intents] = await Promise.all([
+        getBindings(),
+        getAssignmentIntents(),
+      ]);
       for (const key of Object.keys(bindings)) {
         const ruleId = key.replace(/:(regular|incognito)$/, "");
         if (!allowedRuleIds.has(ruleId)) delete bindings[key];
       }
+      for (const key of Object.keys(intents)) {
+        const ruleId = key.replace(/:(regular|incognito)$/, "");
+        if (!allowedRuleIds.has(ruleId)) delete intents[key];
+      }
       await saveBindings(bindings);
+      await saveAssignmentIntents(intents);
       sendResponse({ ok: true, rules: updatedRules });
       return;
     }

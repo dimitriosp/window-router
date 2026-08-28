@@ -20,14 +20,17 @@ async function send(message) {
 
 async function render() {
   currentWindow = await chrome.windows.getCurrent();
-  const { rules, bindings } = await send({ type: "GET_STATE" });
+  const { rules, bindings, intents } = await send({ type: "GET_STATE" });
   rulesContainer.replaceChildren();
 
   for (const rule of rules) {
     const card = template.content.firstElementChild.cloneNode(true);
     const key = `${rule.id}:${currentWindow.incognito ? "incognito" : "regular"}`;
-    const assignedWindowId = bindings[key];
+    const binding = bindings[key];
+    const assignedWindowId =
+      typeof binding === "number" ? binding : binding?.windowId;
     const isHere = assignedWindowId === currentWindow.id;
+    const hasAssignment = Boolean(intents[key]);
 
     card.querySelector(".rule-name").textContent = rule.name;
     card.querySelector(".rule-domains").textContent = rule.domains.join(" · ");
@@ -37,7 +40,9 @@ async function render() {
       ? "Assigned to this window"
       : assignedWindowId
         ? "Assigned to another window"
-        : "No window assigned yet";
+        : hasAssignment
+          ? "Assigned; waiting to recover its window"
+          : "No window assigned yet";
     status.classList.toggle("here", isHere);
 
     const toggle = card.querySelector(".rule-toggle");
@@ -89,7 +94,7 @@ async function render() {
     });
 
     const clearButton = card.querySelector(".clear");
-    clearButton.disabled = !assignedWindowId;
+    clearButton.disabled = !hasAssignment;
     clearButton.addEventListener("click", async () => {
       try {
         await send({

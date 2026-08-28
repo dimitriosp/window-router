@@ -1,4 +1,4 @@
-import { normalizeDomain } from "./src/router-core.js";
+import { normalizeDomain, normalizeRuleId } from "./src/router-core.js";
 
 const rulesContainer = document.querySelector("#rules");
 const template = document.querySelector("#rule-template");
@@ -27,12 +27,7 @@ async function loadRules() {
 }
 
 function makeId(name, index) {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || `custom-${Date.now()}-${index}`;
+  return normalizeRuleId(name, `custom-${Date.now()}-${index}`);
 }
 
 async function saveRules() {

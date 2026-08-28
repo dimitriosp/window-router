@@ -37,9 +37,11 @@ subdomains.
 ## Restart behavior
 
 Chrome window IDs do not survive a complete browser restart. Window Router
-recovers by selecting the restored window that contains the most matching tabs.
-If Chrome did not restore any matching tabs, the first window that opens one
-becomes the destination until you assign another window.
+remembers which rules you assigned, then recovers by selecting the restored
+window that contains the most matching tabs. Recovery stays adaptive while tabs
+finish restoring. If Chrome did not restore any matching tabs, the first window
+that opens one becomes the recovered destination. Use **Use this window** again
+if Chrome cannot infer the intended empty destination window.
 
 ## Important limitation
 

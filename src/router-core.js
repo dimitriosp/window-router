@@ -46,14 +46,14 @@ export function normalizeDomain(input) {
   }
 }
 
-export function urlMatchesRule(url, rule) {
-  if (!rule?.enabled || !url) return false;
+export function urlMatchesDomains(url, domains) {
+  if (!url || !Array.isArray(domains)) return false;
 
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
     const hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    return rule.domains.some(
+    return domains.some(
       (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
     );
   } catch {
@@ -61,8 +61,22 @@ export function urlMatchesRule(url, rule) {
   }
 }
 
+export function urlMatchesRule(url, rule) {
+  return Boolean(rule?.enabled) && urlMatchesDomains(url, rule.domains);
+}
+
 export function bindingKey(ruleId, incognito) {
   return `${ruleId}:${incognito ? "incognito" : "regular"}`;
+}
+
+export function normalizeRuleId(value, fallback) {
+  return (
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || fallback
+  );
 }
 
 export function selectDestinationWindow(tabs, rule, sourceWindowId, incognito) {
@@ -99,12 +113,7 @@ export function sanitizeRules(rules) {
     ];
     if (!name || domains.length === 0) return [];
 
-    let id = String(rule?.id ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    if (!id) id = `rule-${index + 1}`;
+    let id = normalizeRuleId(rule?.id, `rule-${index + 1}`);
     while (usedIds.has(id)) id = `${id}-${index + 1}`;
     usedIds.add(id);
 

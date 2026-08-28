@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   normalizeDomain,
+  normalizeRuleId,
   sanitizeRules,
   selectDestinationWindow,
+  urlMatchesDomains,
   urlMatchesRule,
 } from "../src/router-core.js";
 
@@ -19,6 +21,18 @@ describe("domain matching", () => {
     expect(urlMatchesRule("https://music.youtube.com/", youtubeRule)).toBe(true);
     expect(urlMatchesRule("https://notyoutube.com/", youtubeRule)).toBe(false);
     expect(urlMatchesRule("chrome://extensions", youtubeRule)).toBe(false);
+  });
+
+  test("can match domains for a manual action when automatic routing is disabled", () => {
+    expect(
+      urlMatchesRule("https://youtube.com/watch?v=1", {
+        ...youtubeRule,
+        enabled: false,
+      }),
+    ).toBe(false);
+    expect(
+      urlMatchesDomains("https://youtube.com/watch?v=1", youtubeRule.domains),
+    ).toBe(true);
   });
 
   test("normalizes domains copied as full URLs", () => {
@@ -61,6 +75,11 @@ describe("destination recovery", () => {
 });
 
 describe("rule sanitation", () => {
+  test("uses one rule ID normalization contract", () => {
+    expect(normalizeRuleId(" My Docs ", "fallback")).toBe("my-docs");
+    expect(normalizeRuleId("", "fallback")).toBe("fallback");
+  });
+
   test("removes invalid rules and duplicate domains", () => {
     expect(
       sanitizeRules([
