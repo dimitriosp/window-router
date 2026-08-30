@@ -56,6 +56,7 @@ Create at least these files:
 - `package.json`
 - `README.md`
 - `SPEC.md`
+- `CHANGELOG.md`
 
 Use the popup as the extension action and `options.html` as the advanced options
 page. The manifest must load `src/background.js` as a module service worker.
@@ -291,6 +292,9 @@ Write a clear `README.md` that includes:
 - The privacy statement and the limitation about search terms versus real URLs.
 
 Write `SPEC.md` as a concise list of required product behavior and constraints.
+Maintain a dated `CHANGELOG.md` and use semantic versioning in `manifest.json`.
+Every release must update both the manifest version and changelog, regardless
+of the type of change it contains.
 Set useful package scripts for tests and validation. Then run at least:
 
 1. `bun test`

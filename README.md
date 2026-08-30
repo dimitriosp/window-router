@@ -19,6 +19,16 @@ Chrome does not automatically update extensions installed this way. Download a
 new release, replace the local files, and select **Reload** on
 `chrome://extensions` when you want to update it.
 
+The current version is **1.4.1**. See the [changelog](CHANGELOG.md) for the exact
+changes in every release.
+
+## Release policy
+
+Every release must update the version in `manifest.json` and add a dated entry
+to `CHANGELOG.md`, regardless of the type of change it contains. Use a patch
+version for fixes, a minor version for backward-compatible features, and a major
+version for breaking changes.
+
 ## Build it yourself with an AI coding agent
 
 Want to recreate or customize the extension yourself? Copy the complete
