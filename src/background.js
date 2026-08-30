@@ -125,6 +125,22 @@ async function clearBinding(ruleId, incognito) {
   await saveBindings(bindings);
 }
 
+function isWindowAssignedToAnotherRule(
+  bindings,
+  ownKey,
+  windowId,
+  incognito,
+) {
+  if (!Number.isInteger(windowId)) return false;
+  const modeSuffix = incognito ? ":incognito" : ":regular";
+  return Object.entries(bindings).some(
+    ([candidateKey, binding]) =>
+      candidateKey !== ownKey &&
+      candidateKey.endsWith(modeSuffix) &&
+      bindingWindowId(binding) === windowId,
+  );
+}
+
 async function findDestination(rule, sourceTab) {
   const key = bindingKey(rule.id, sourceTab.incognito);
   const [bindings, intents] = await Promise.all([getBindings(), getAssignmentIntents()]);
@@ -133,8 +149,15 @@ async function findDestination(rule, sourceTab) {
   const binding = bindings[key];
   const assignedWindowId = bindingWindowId(binding);
   const bindingSource = typeof binding === "number" ? "manual" : binding?.source;
+  const assignedToAnotherRule = isWindowAssignedToAnotherRule(
+    bindings,
+    key,
+    assignedWindowId,
+    sourceTab.incognito,
+  );
 
   if (
+    !assignedToAnotherRule &&
     (bindingSource === "manual" ||
       bindingSource === "automatic" ||
       bindingSource === "recovered") &&
@@ -175,7 +198,11 @@ async function createAutomaticDestination(rule, tab) {
 async function adoptThresholdDestination(rule, tab, threshold) {
   if (threshold === 0) return null;
 
-  const tabs = await chrome.tabs.query({});
+  const [tabs, bindings] = await Promise.all([
+    chrome.tabs.query({}),
+    getBindings(),
+  ]);
+  const key = bindingKey(rule.id, tab.incognito);
   const matchingTabs = tabs.filter(
     (candidate) =>
       candidate.incognito === Boolean(tab.incognito) &&
@@ -183,7 +210,15 @@ async function adoptThresholdDestination(rule, tab, threshold) {
   );
   const candidateWindowIds = [
     ...new Set(matchingTabs.map((candidate) => candidate.windowId)),
-  ];
+  ].filter(
+    (windowId) =>
+      !isWindowAssignedToAnotherRule(
+        bindings,
+        key,
+        windowId,
+        tab.incognito,
+      ),
+  );
   const usableWindowIds = new Set(
     (
       await Promise.all(
@@ -334,6 +369,7 @@ async function organizeRule(
   assignmentState,
   claimedTabIds = new Set(),
   preferredTabId = null,
+  claimedWindowIds = new Set(),
 ) {
   const { bindings, intents, organizedRules } = assignmentState;
   const key = bindingKey(rule.id, incognito);
@@ -355,7 +391,15 @@ async function organizeRule(
   const savedWindowId = organizedRules[key]
     ? bindingWindowId(bindings[key])
     : null;
-  const canReuseWindow = await isUsableWindow(savedWindowId, incognito);
+  const canReuseWindow =
+    !claimedWindowIds.has(savedWindowId) &&
+    !isWindowAssignedToAnotherRule(
+      bindings,
+      key,
+      savedWindowId,
+      incognito,
+    ) &&
+    (await isUsableWindow(savedWindowId, incognito));
   let targetWindowId = savedWindowId;
   let created = false;
   let moved = 0;
@@ -390,6 +434,7 @@ async function organizeRule(
   bindings[key] = { windowId: targetWindowId, source: "manual" };
   intents[key] = true;
   organizedRules[key] = true;
+  claimedWindowIds.add(targetWindowId);
   await saveAssignmentState(assignmentState);
 
   const moveResult = await moveMatchingTabs(matchingTabs, targetWindowId);
@@ -423,6 +468,7 @@ async function organizeRuleSet(rules, incognito) {
     loadAssignmentState(),
   ]);
   const claimedTabIds = new Set();
+  const claimedWindowIds = new Set();
   const results = [];
 
   for (const rule of rules.filter((candidate) => candidate.enabled)) {
@@ -433,6 +479,8 @@ async function organizeRuleSet(rules, incognito) {
         tabs,
         assignmentState,
         claimedTabIds,
+        null,
+        claimedWindowIds,
       ),
     );
   }
@@ -523,17 +571,70 @@ async function finishStartupRecovery() {
     getAssignmentIntents(),
     getBindings(),
   ]);
+  const usableWindowIdsByMode = new Map();
+  for (const incognito of [false, true]) {
+    const candidateWindowIds = [
+      ...new Set(
+        tabs
+          .filter((tab) => tab.incognito === incognito)
+          .map((tab) => tab.windowId),
+      ),
+    ];
+    const usableWindowIds = new Set(
+      (
+        await Promise.all(
+          candidateWindowIds.map(async (windowId) => ({
+            windowId,
+            usable: await isUsableWindow(windowId, incognito),
+          })),
+        )
+      )
+        .filter((candidate) => candidate.usable)
+        .map((candidate) => candidate.windowId),
+    );
+    usableWindowIdsByMode.set(incognito, usableWindowIds);
+  }
+  const claimedWindowIdsByMode = new Map([
+    [false, new Set()],
+    [true, new Set()],
+  ]);
 
   for (const rule of rules.filter((candidate) => candidate.enabled)) {
     for (const incognito of [false, true]) {
       const key = bindingKey(rule.id, incognito);
       if (!intents[key]) continue;
       const existingBinding = bindings[key];
-      if (existingBinding?.source === "manual") continue;
+      const claimedWindowIds = claimedWindowIdsByMode.get(incognito);
+      const usableWindowIds = usableWindowIdsByMode.get(incognito);
+      if (existingBinding?.source === "manual") {
+        const existingWindowId = bindingWindowId(existingBinding);
+        if (
+          usableWindowIds.has(existingWindowId) &&
+          !claimedWindowIds.has(existingWindowId)
+        ) {
+          claimedWindowIds.add(existingWindowId);
+        } else {
+          delete bindings[key];
+        }
+        continue;
+      }
 
-      const destination = selectDestinationWindow(tabs, rule, null, incognito);
+      const availableTabs = tabs.filter(
+        (tab) =>
+          usableWindowIds.has(tab.windowId) &&
+          !claimedWindowIds.has(tab.windowId),
+      );
+      const destination = selectDestinationWindow(
+        availableTabs,
+        rule,
+        null,
+        incognito,
+      );
       if (destination !== null) {
         bindings[key] = { windowId: destination, source: "recovered" };
+        claimedWindowIds.add(destination);
+      } else {
+        delete bindings[key];
       }
     }
   }

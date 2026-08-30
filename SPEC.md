@@ -12,6 +12,8 @@ future matching tabs to those windows.
   semicolons, or spaces.
 - Let the user press one button to create or reuse one dedicated window per
   entered domain group and move all matching open tabs there.
+- Never let two enabled domain groups share the same dedicated window in the
+  same browsing mode.
 - Let the user right-click a website tab and add its domain to Window Router
   without copying and pasting it.
 - After the right-click action, create or reuse a dedicated window, move all
@@ -37,6 +39,8 @@ future matching tabs to those windows.
 - Keep normal and incognito window assignments separate.
 - Recover a useful destination after Chrome restarts by selecting the window that
   already contains the most matching tabs.
+- During restart recovery, assign each restored window to at most one rule and
+  leave other rules unassigned until they can use a separate window.
 - Move existing tabs only after the explicit bulk-organize click.
 - Let the user add, edit, enable, disable, and delete custom domain rules.
 - Let the user save advanced rules and organize every enabled rule in one action.
