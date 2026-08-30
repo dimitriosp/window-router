@@ -108,6 +108,9 @@ When the user selects **Organize all open tabs**:
   browser windows.
 - For each enabled rule, create or reuse exactly one dedicated window for the
   current browsing mode.
+- Never assign the same destination window to two enabled rules in the same
+  browsing mode. If saved bindings collide, keep one assignment and create or
+  select a separate destination for the other rule.
 - Move every matching open tab into that window while leaving unrelated tabs
   where they are.
 - If no matching tab exists for a rule, open the group's primary homepage in
@@ -217,9 +220,12 @@ After browser startup, schedule a short recovery pass with `chrome.alarms` so
 restored tabs have time to settle. For each previously organized rule, choose
 the restored normal window in the same browsing mode that already contains the
 largest number of matching tabs. Bind it and route other restored matching tabs
-there. If no matching restored tab exists, wait for later tab activity rather
-than creating an empty window without user intent. Do not run this recovery
-heuristic during ordinary browsing unless the auto-merge setting is enabled.
+there. Assign each restored window to at most one rule. If a mixed restored
+window matches several rules, recover one assignment and leave the others
+unassigned until a separate destination is available. If no matching restored
+tab exists, wait for later tab activity rather than creating an empty window
+without user intent. Do not run this recovery heuristic during ordinary
+browsing unless the auto-merge setting is enabled.
 
 ## Core logic and safety
 
@@ -255,6 +261,7 @@ not private implementation details. At minimum, cover:
 - Auto-merge below, at, and above thresholds 1 through 4.
 - Selecting the busiest qualifying window and deterministic tie handling.
 - Existing-window adoption taking priority over automatic creation.
+- Auto-merge refusing a window already assigned to another rule.
 - Combining aliases for threshold counts.
 - Excluding non-normal windows as destination or auto-merge candidates and
   separating regular from incognito mode.
@@ -262,6 +269,8 @@ not private implementation details. At minimum, cover:
 - Advanced save-only versus save-and-organize behavior.
 - Startup recovery from restored tabs and no ordinary-browsing recovery when
   auto-merge is off.
+- Organizer repair of duplicate recovered bindings and unique window ownership
+  during startup recovery.
 - Pinned-tab movement.
 - Concurrent or repeated events producing only one destination assignment.
 

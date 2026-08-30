@@ -540,6 +540,68 @@ describe("background routing", () => {
     expect(sessionData.windowBindings["x-twitter:regular"].windowId).toBe(30);
   });
 
+  test("does not auto-merge into a window assigned to another rule", async () => {
+    localData.routingRules = [
+      {
+        id: "x-twitter",
+        name: "X / Twitter",
+        domains: ["x.com", "twitter.com"],
+        enabled: true,
+      },
+      {
+        id: "linkedin",
+        name: "LinkedIn",
+        domains: ["linkedin.com"],
+        enabled: true,
+      },
+    ];
+    localData.assignmentIntents = { "x-twitter:regular": true };
+    sessionData.windowBindings = {
+      "x-twitter:regular": { windowId: 20, source: "manual" },
+    };
+    await sendMessage({ type: "SET_AUTO_MERGE_THRESHOLD", threshold: 2 });
+    tabs.push(
+      {
+        id: 1,
+        windowId: 20,
+        incognito: false,
+        url: "https://x.com/home",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 20,
+        incognito: false,
+        url: "https://linkedin.com/feed",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 3,
+        windowId: 20,
+        incognito: false,
+        url: "https://linkedin.com/jobs",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 4,
+        windowId: 30,
+        incognito: false,
+        url: "https://linkedin.com/in/example",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    events.updated.emit(4, { url: tabs[3].url }, structuredClone(tabs[3]));
+    await finishQueuedRouting();
+
+    expect(tabs.find((tab) => tab.id === 4).windowId).toBe(30);
+    expect(sessionData.windowBindings["linkedin:regular"]).toBeUndefined();
+  });
+
   test("creates dedicated windows in one action and routes future tabs", async () => {
     tabs.push(
       {
@@ -893,5 +955,106 @@ describe("background routing", () => {
     expect(sessionData.windowBindings["youtube:regular"].windowId).toBe(20);
     expect(sessionData.startupRecoveryPending).toBe(false);
     expect(moves).toEqual([{ tabId: 1, windowId: 20, index: -1 }]);
+  });
+
+  test("organizer separates rules that share a recovered window", async () => {
+    localData.routingRules = [
+      {
+        id: "trigger-dev",
+        name: "Trigger.dev",
+        domains: ["cloud.trigger.dev"],
+        enabled: true,
+      },
+      {
+        id: "vercel",
+        name: "Vercel",
+        domains: ["vercel.com"],
+        enabled: true,
+      },
+    ];
+    localData.organizedRuleWindows = {
+      "trigger-dev:regular": true,
+      "vercel:regular": true,
+    };
+    sessionData.windowBindings = {
+      "trigger-dev:regular": { windowId: 10, source: "recovered" },
+      "vercel:regular": { windowId: 10, source: "recovered" },
+    };
+    tabs.push(
+      {
+        id: 1,
+        windowId: 10,
+        incognito: false,
+        url: "https://cloud.trigger.dev/org/project",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 10,
+        incognito: false,
+        url: "https://vercel.com/team/project",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    const response = await sendMessage({
+      type: "SAVE_AND_ORGANIZE_RULES",
+      incognito: false,
+      rules: localData.routingRules,
+    });
+
+    expect(response.ok).toBe(true);
+    expect(new Set(tabs.map((tab) => tab.windowId)).size).toBe(2);
+  });
+
+  test("startup recovery assigns a mixed window to only one rule", async () => {
+    localData.routingRules = [
+      {
+        id: "trigger-dev",
+        name: "Trigger.dev",
+        domains: ["cloud.trigger.dev"],
+        enabled: true,
+      },
+      {
+        id: "vercel",
+        name: "Vercel",
+        domains: ["vercel.com"],
+        enabled: true,
+      },
+    ];
+    localData.assignmentIntents = {
+      "trigger-dev:regular": true,
+      "vercel:regular": true,
+    };
+    tabs.push(
+      {
+        id: 1,
+        windowId: 10,
+        incognito: false,
+        url: "https://cloud.trigger.dev/org/project",
+        active: false,
+        pinned: false,
+      },
+      {
+        id: 2,
+        windowId: 10,
+        incognito: false,
+        url: "https://vercel.com/team/project",
+        active: true,
+        pinned: false,
+      },
+    );
+
+    events.startup.emit();
+    await Bun.sleep(1);
+    events.alarm.emit({ name: "finish-startup-recovery" });
+    await Bun.sleep(20);
+
+    const recoveredBindings = Object.values(sessionData.windowBindings ?? {});
+    expect(
+      recoveredBindings.filter((binding) => binding.windowId === 10),
+    ).toHaveLength(1);
   });
 });
